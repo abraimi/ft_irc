@@ -11,6 +11,7 @@ class Server {
 
 		/* Sockets */
 		void	initSocket();
+		void	bindSocket();
 
 	public:
 		Server();

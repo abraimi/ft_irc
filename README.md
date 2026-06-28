@@ -14,3 +14,4 @@
 - [IETF IRC: Server Protocol](https://datatracker.ietf.org/doc/html/rfc2813)
 - [setsockopt() function](https://pubs.opengroup.org/onlinepubs/009696599/functions/setsockopt.html)
 - [fcntl() function](https://pubs.opengroup.org/onlinepubs/009696599/functions/fcntl.html)
+- [GfG Socket Programming](https://www.geeksforgeeks.org/cpp/socket-programming-in-cpp/)

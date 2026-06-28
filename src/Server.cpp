@@ -1,6 +1,7 @@
 #include "Server.hpp"
 #include <stdexcept>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <fcntl.h>
 
 Server::Server() : port(6969), password("password") {};
@@ -25,4 +26,16 @@ void	Server::initSocket() {
 	if (fcntl(this->serverSock, F_SETFL, O_NONBLOCK) < 0) {
 		throw std::runtime_error("Couldn't set NON-BLOCK mode!");
 	} 
+}
+
+void	Server::bindSocket() {
+	sockaddr_in serverAddr;
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(this->port);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+
+	if (bind(this->serverSock, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
+		throw std::runtime_error("Couldn't bind port to the server!");
+	}
 }
