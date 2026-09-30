@@ -1,7 +1,7 @@
 NAME= ft_irc
 
 CXX= c++
-CXXCFLAGS= -Wall -Wextra -Werror -std=c++98
+CXXCFLAGS= #-Wall -Wextra -Werror -std=c++98
 CXXBFLAGS=
 
 CWD= .
