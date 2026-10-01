@@ -1,4 +1,5 @@
 #include "../include/Server.hpp"
+#include <cstddef>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <stdexcept>
@@ -9,13 +10,63 @@
 
 Server::Server(int port, const std::string &password) : _port(port), _server_fd(-1),_password(password)
 {}
-Server::~Server() {}
+Server::~Server() {
+	for(size_t i = 0; i < _clients.size(); i++)
+	{
+		close(_clients[i]->getFd());
+		delete _clients[i];
+	}
+	if(_server_fd != -1)
+		close(_server_fd);
+}
+
+void Server::removeClient(int fd)
+{
+	for(size_t i = 0; i < _clients.size(); i++)
+	{
+		if(_clients[i]->getFd() == fd)
+		{
+			delete _clients[i];
+			_clients.erase(_clients.begin() + i); // remove the pointer form the vector
+			return;
+		}
+	}
+}
 
 static void fatal_error(int server_fd, const std::string &except)
 {
 	close(server_fd);
 	throw std::runtime_error(except);
 }
+
+void Server::sendToClient(Client *client, const std::string &msg)
+{
+	client->getSendBuff().append(msg);
+	for(size_t i = 0; i < _pollfds.size(); i++)
+	{
+		if(_pollfds[i].fd == client->getFd()){
+			_pollfds[i].events |= POLLOUT; // using OR bitmask operator because events is typically a bitmask , each bit represents a different event we are intersted in
+			//POLLIN = reading // POLLOUT = writing // POLLERR = error // POLLIN |= POLLOUT = 0001 |= 0010 = POLLOUT
+			return; 
+		}
+	}
+}
+Client *Server::getClientByFd(int fd)
+{
+	for(size_t i = 0; i < _clients.size(); i++)
+	{
+		if(_clients[i]->getFd() == fd)
+			return _clients[i];
+	}
+	return NULL;
+}
+
+void Server::processMessage(Client *client, const std::string &msg) //just to check the way i retrieve msg parser need to implement it
+{
+	std::cout << "the complete msg from fd " << client->getFd() << ": " << msg << std::endl;
+	sendToClient(client, "server received: " + msg + "\r\n");
+}
+
 void Server::setUpSocket() {
 
 	int opt = 1;
@@ -63,11 +114,11 @@ void Server::run()
 		size_t i = 0;
 		while (i < _pollfds.size())
 		{
-			if(_pollfds[i].events == 0) { // nothing happened check next fd
+			if(_pollfds[i].revents == 0) { // nothing happened check next fd
 				i++;
 				continue;
 			}
-			if(_pollfds[i].revents && POLLIN) { // bitmask check if POLLIN flaged revents
+			if(_pollfds[i].revents & POLLIN) { // bitmask check if POLLIN flaged revents
 			
 				if(_pollfds[i].fd == _server_fd) { // a new client trying to connect
 					int client_fd = accept(_server_fd, NULL, NULL); //create another fd for the clients while server fd stays alive
@@ -82,34 +133,67 @@ void Server::run()
 					}
 					struct pollfd client_poll_fd; //to tell poll to aslo watch for this new client
 					client_poll_fd.fd = client_fd;
-					client_poll_fd.events = POLLIN;
+					client_poll_fd.events = POLLIN; // POLLIN = tell me when this socket is ready for me to read
 					client_poll_fd.revents = 0;
 
 					_pollfds.push_back(client_poll_fd); // add the client to our vector
+					Client *client = new Client(client_fd); //free later
+					_clients.push_back(client);
 					std::cout << "New client connected fd " << client_fd << std::endl;
-					i++;
 				}
 				else { // dealing with an existing client aka not the server fd
 					int client_fd = _pollfds[i].fd;
 					int b_r = recv(client_fd, buffer, sizeof(buffer) - 1, 0); // give me data the client sent (man recv)
 					if (b_r <= 0) { // 0 means the client disconnected clean, -1 error
 						close(client_fd);
+						removeClient(client_fd);
 						_pollfds.erase(_pollfds.begin() + i);
 						std::cout << "client disconnected fd " << client_fd << std::endl;
 						continue;
 					}
-					buffer[b_r] = '\0';
-					std::cout << "client " << client_fd << " sent: " << buffer << std::endl;
-					i++;
+					else if (b_r > 0)
+					{
+						Client *client = getClientByFd(client_fd);
+						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
+						//!!! for testing only parser need to implement this
+						std::string &client_buffer = client->getBuff();
+						size_t pos = client_buffer.find("\r\n");
+						while(pos != std::string::npos)
+						{
+							std::string msg = client_buffer.substr(0, pos);
+							processMessage(client, msg); // eventually we will need to store this so it become the connection point to the server
+							client_buffer.erase(0, pos + 2); // remove it after process 
+							pos = client_buffer.find("\r\n"); //get next pos
+						}
+					}
+					// std::cout << "client " << client_fd << " sent: " << buffer << std::endl;
 				}
 			}
-			else
+			if(_pollfds[i].revents & POLLOUT)
+			{
+				Client *client = getClientByFd(_pollfds[i].fd);
+				if(client != NULL)
+				{
+					std::string &send_buff = client->getSendBuff();
+					if(!send_buff.empty())
+					{
+						int b_s = send(client->getFd(), send_buff.c_str(), send_buff.size(), 0); ///man send() im sick of commenting
+						if(b_s > 0)
+							send_buff.erase(0, b_s);
+					}
+					if(send_buff.empty())
+						_pollfds[i].events &= ~POLLOUT; // tell the os to stop POLL() to notify us about writing 
+				}
+			}
 				i++;
+
 		}
 		
 	}
 	
 }
+
+
 
 void Server::start()
 {
