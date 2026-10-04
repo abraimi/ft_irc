@@ -1,5 +1,7 @@
 #include "../include/Server.hpp"
+#include "Command.hpp"
 #include <cstddef>
+#include <string>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <stdexcept>
@@ -7,6 +9,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <vector>
 
 Server::Server(int port, const std::string &password) : _port(port), _server_fd(-1),_password(password)
 {}
@@ -155,16 +158,33 @@ void Server::run()
 					{
 						Client *client = getClientByFd(client_fd);
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						//!!! for testing only parser need to implement this
-						std::string &client_buffer = client->getBuff();
-						size_t pos = client_buffer.find("\r\n");
-						while(pos != std::string::npos)
-						{
-							std::string msg = client_buffer.substr(0, pos);
-							processMessage(client, msg); // eventually we will need to store this so it become the connection point to the server
-							client_buffer.erase(0, pos + 2); // remove it after process 
-							pos = client_buffer.find("\r\n"); //get next pos
+						Command	parser;
+
+						Command_t cmd = parser.parseCommand(client->getBuff());
+						/**
+							TODO: In here the execution of the command should be added 
+						*/
+						std::cout << "Valid: " << cmd.valid
+							<< "Cmd type: " << cmd.type 
+							<< "Authority: " << cmd.authority
+							<< "ErrNum: " << cmd.errNum
+						<< std::endl;
+						for (size_t idx = 0; idx < cmd.args.size(); idx++) {
+							std::cout <<
+								cmd.args.at(idx) << ","
+							<< std::endl;
 						}
+						// client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
+						// //!!! for testing only parser need to implement this
+						// std::string &client_buffer = client->getBuff();
+						// size_t pos = client_buffer.find("\r\n");
+						// while(pos != std::string::npos)
+						// {
+						// 	std::string msg = client_buffer.substr(0, pos);
+						// 	processMessage(client, msg); // eventually we will need to store this so it become the connection point to the server
+						// 	client_buffer.erase(0, pos + 2); // remove it after process 
+						// 	pos = client_buffer.find("\r\n"); //get next pos
+						// }
 					}
 					// std::cout << "client " << client_fd << " sent: " << buffer << std::endl;
 				}
