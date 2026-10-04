@@ -18,7 +18,7 @@ enum Authority_t {
 	REGULAR
 };
 
-enum CommandTypes {
+enum Command_t {
 	UNKNOWN = -1, // no (valid) command in the parsed line
 
 	// General commands
@@ -35,21 +35,24 @@ enum CommandTypes {
 	MODE
 };
 
-struct Command_t{
-	Authority_t					authority;
-	CommandTypes				type;
-	std::vector<std::string>	args;
-	bool						valid;		// false => nothing to execute (CmdType stays UNKNOWN)
-	int							errNum;	// IRC numeric to reply with, 0 = none (silent drop)
-	Command_t() : authority(REGULAR), type(UNKNOWN), valid(false), errNum(0) {}
-};
 
 class Command {
 	private:
 		Client						*client;
+
+		Authority_t					authority;
+		Command_t					type;
+		std::vector<std::string>	args;
+		bool						valid;		// false => nothing to execute (CmdType stays UNKNOWN)
+		std::size_t					errNum;
+
 		std::vector<std::string> 	tokens;
 
-		void	tokenize(const std::string &line, std::size_t start);
+		// void		tokenize(const std::string &line, std::size_t start);
+		void		tokenize(std::string& line, std::string::iterator& it);
+		std::string	sanitize(const std::string& line);
+
+		// Command_t	
 
 	public:
 		Command();
@@ -67,7 +70,14 @@ class Command {
 		*         Args = the parameters only (command name is consumed later
 		*         by the name -> CommandTypes lookup + validation).
 		**/
-		Command_t	parseCommand(const std::string &line);
+		void	parseCommand(const std::string &line);
+
+		/* Getters */
+		Authority_t					getAuthority() const;
+		Command_t					getType() const;
+		std::vector<std::string>	getArgs() const;
+		bool						getValid() const;
+		std::size_t					getErrNum() const;
 };
 
 #endif // COMMAND_HPP

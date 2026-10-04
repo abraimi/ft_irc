@@ -1,7 +1,7 @@
 NAME= ft_irc
 
 CXX= c++
-CXXCFLAGS= #-Wall -Wextra -Werror -std=c++98
+CXXCFLAGS= -Wall -Wextra -Werror -std=c++98 -fsanitize=address 
 CXXBFLAGS=
 
 CWD= .
@@ -25,7 +25,7 @@ LIB_SRCS= $(filter-out $(SRC_DIR)/main.cpp, $(SRCS))
 all: $(BUILD_DIR) $(NAME) $(HEADERS)
 
 $(NAME): $(OBJS) $(HEADERS)
-	$(CXX) $(CXXCFLAGS) $(INCLUDES) $(OBJS) -o $@
+	$(CXX) $(CXXCFLAGS) $(CXXBFLAGS) $(INCLUDES) $(OBJS) -o $@
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)

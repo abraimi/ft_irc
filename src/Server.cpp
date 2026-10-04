@@ -158,22 +158,33 @@ void Server::run()
 					{
 						Client *client = getClientByFd(client_fd);
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						Command	parser;
+						Command	cmd;
 
-						Command_t cmd = parser.parseCommand(client->getBuff());
+						cmd.parseCommand(client->getBuff());
+
+						std::cout << "Valid: " << cmd.getValid()
+							<< "Cmd type: " << cmd.getType()
+							<< "Authority: " << cmd.getAuthority()
+							<< "ErrNum: " << cmd.getErrNum()
+						<< std::endl;
+						for (size_t idx = 0; idx < cmd.getArgs().size(); idx++) {
+							std::cout <<
+								cmd.getArgs().at(idx) << ","
+							<< std::endl;
+						}
 						/**
 							TODO: In here the execution of the command should be added 
 						*/
-						std::cout << "Valid: " << cmd.valid
-							<< "Cmd type: " << cmd.type 
-							<< "Authority: " << cmd.authority
-							<< "ErrNum: " << cmd.errNum
-						<< std::endl;
-						for (size_t idx = 0; idx < cmd.args.size(); idx++) {
-							std::cout <<
-								cmd.args.at(idx) << ","
-							<< std::endl;
-						}
+						// std::cout << "Valid: " << cmd.valid
+						// 	<< "Cmd type: " << cmd.type 
+						// 	<< "Authority: " << cmd.authority
+						// 	<< "ErrNum: " << cmd.errNum
+						// << std::endl;
+						// for (size_t idx = 0; idx < cmd.args.size(); idx++) {
+						// 	std::cout <<
+						// 		cmd.args.at(idx) << ","
+						// 	<< std::endl;
+						// }
 						// client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
 						// //!!! for testing only parser need to implement this
 						// std::string &client_buffer = client->getBuff();
