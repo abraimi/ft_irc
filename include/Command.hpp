@@ -52,7 +52,7 @@ class Command {
 		void		tokenize(std::string& line, std::string::iterator& it);
 		std::string	sanitize(const std::string& line);
 
-		// Command_t	
+		Command_t	commandType(const std::string& command);
 
 	public:
 		Command();

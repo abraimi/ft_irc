@@ -1,7 +1,9 @@
 #include "Command.hpp"
 #include "Client.hpp"
 #include <cstddef>
+#include <map>
 #include <string>
+#include <utility>
 
 Command::Command(): client(NULL), authority(REGULAR), type(UNKNOWN), args(), valid(false), errNum(0) {}
 
@@ -103,11 +105,48 @@ void	Command::parseCommand(const std::string &line) {
 	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
 		if (!idx) {
 			// TODO: Create a function that will return the appropriate cmd type from a string;
-			// this->type =
+			this->type = commandType(this->tokens.at(idx));
 			continue ;
 		}
 		this->args.push_back(this->tokens.at(idx));
 	}
+}
+
+Command_t	Command::commandType(const std::string& command) {
+	typedef std::pair<std::string, Command_t> Entry;
+
+    static const Entry entries[] = {
+        Entry("USER", USER), Entry("PASS", PASS),
+        Entry("NICK", NICK), Entry("JOIN", JOIN),
+		Entry("PRIVMSG", PRIVMSG), Entry("KICK", KICK),
+		Entry("KICK", KICK), Entry("INVITE", INVITE),
+		Entry("TOPIC", TOPIC), Entry("MODE", MODE)
+    };
+	static const std::map<std::string, Command_t> types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
+
+	std::map<std::string, Command_t>::const_iterator	it = types.find(command);
+
+	if (it == types.end()) {
+		return UNKNOWN;
+	}
+	return it->second;
+}
+/*
+case PASS:    minArgs = maxArgs = 1; break;
+case USER:    minArgs = maxArgs = 4; break;
+case NICK:    minArgs = maxArgs = 1; break;
+case JOIN:    minArgs = 1; maxArgs = 2; break;
+case PRIVMSG: minArgs = maxArgs = 2; break;
+case PART:    minArgs = 1; maxArgs = 2; break;
+case KICK:    minArgs = 2; maxArgs = 3; break;
+case INVITE:  minArgs = maxArgs = 2; break;
+case TOPIC:   minArgs = 1; maxArgs = 2; break;
+case MODE:    minArgs = 1; break;
+*/
+
+void	validateArgs() {
+	// TODO: Create this function on which we would validate the args depending on the cmd.
+	// typedef std::pai ;
 }
 
 /*
