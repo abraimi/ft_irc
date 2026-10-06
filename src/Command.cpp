@@ -1,13 +1,11 @@
 #include "Command.hpp"
 #include "Client.hpp"
-#include <cstddef>
+#include "CommandException.hpp"
 #include <map>
 #include <string>
 #include <utility>
 
-Command::Command(): client(NULL), authority(REGULAR), type(UNKNOWN), args(), valid(false), errNum(0) {}
-
-Command::Command(Client* client): client(client), authority(REGULAR), type(UNKNOWN), args(), valid(false), errNum(0) {}
+Command::Command(Client* client): client(client), authority(REGULAR), type(UNKNOWN), args(), valid(false) {}
 
 Command::~Command() {}
 
@@ -28,17 +26,6 @@ std::string	Command::sanitize(const std::string &line)
 
 	return (toClean);
 }
-
-/**
-* Split `line` from index `start` on whitespace into this->tokens.
-*
-* A token starting with ':' takes the REST of the line as ONE argument
-* (RFC 1459 trailing parameter):
-*     PRIVMSG #42 :hello world   ->  ["PRIVMSG", "#42", "hello world"]
-*     USER a b c :Real Name      ->  ["USER", "a", "b", "c", "Real Name"]
-* The trailing text may be empty ("NICK :") and is kept as "" so the
-* validation step can reject it. tokens is cleared by parseCommand().
-*/
 
 void	skipSpaces(const std::string& line, std::string::iterator& it) {
 	for (; it != line.end(); it++) {
@@ -113,7 +100,7 @@ void	Command::parseCommand(const std::string &line) {
 }
 
 Command_t	Command::commandType(const std::string& command) {
-	typedef std::pair<std::string, Command_t> Entry;
+	typedef std::pair<std::string, Command_t>	Entry;
 
     static const Entry entries[] = {
         Entry("USER", USER), Entry("PASS", PASS),
@@ -122,8 +109,7 @@ Command_t	Command::commandType(const std::string& command) {
 		Entry("KICK", KICK), Entry("INVITE", INVITE),
 		Entry("TOPIC", TOPIC), Entry("MODE", MODE)
     };
-	static const std::map<std::string, Command_t> types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
-
+	static const std::map<std::string, Command_t>		types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
 	std::map<std::string, Command_t>::const_iterator	it = types.find(command);
 
 	if (it == types.end()) {
@@ -131,22 +117,129 @@ Command_t	Command::commandType(const std::string& command) {
 	}
 	return it->second;
 }
-/*
-case PASS:    minArgs = maxArgs = 1; break;
-case USER:    minArgs = maxArgs = 4; break;
-case NICK:    minArgs = maxArgs = 1; break;
-case JOIN:    minArgs = 1; maxArgs = 2; break;
-case PRIVMSG: minArgs = maxArgs = 2; break;
-case PART:    minArgs = 1; maxArgs = 2; break;
-case KICK:    minArgs = 2; maxArgs = 3; break;
-case INVITE:  minArgs = maxArgs = 2; break;
-case TOPIC:   minArgs = 1; maxArgs = 2; break;
-case MODE:    minArgs = 1; break;
-*/
 
-void	validateArgs() {
-	// TODO: Create this function on which we would validate the args depending on the cmd.
-	// typedef std::pai ;
+static bool	validNickname(const std::string& nick) {
+	static const std::string	special = "-[]\\`^{}_";
+
+	if (nick.empty() || nick.size() > 9) {
+		return false;
+	}
+	for (std::string::const_iterator it = nick.begin(); it != nick.end(); it++) {
+		unsigned char c = static_cast<unsigned char>(*it);
+
+		if (!std::isalpha(c) && !std::isdigit(c)
+			&& special.find(static_cast<char>(c)) == std::string::npos) {
+			return false;
+		}
+		if (it == nick.begin() && std::isdigit(c)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool	validChannel(const std::string& name) {
+	if (name.empty() || name.size() > 200
+		|| (name[0] != '#' && name[0] != '&')) {
+		return false;
+	}
+	for (std::string::const_iterator it = name.begin(); it != name.end(); it++) {
+		if (*it == ' ' || *it == '\t' || *it == ',' || *it == '\a'
+			|| *it == '\r' || *it == '\n') {
+			return false;
+		}
+	}
+	return true;
+}
+//TODO: This function may need to be removed and replaced a more thorough one.
+static bool	validChannelList(const std::string& list) {
+	std::string::size_type	start = 0;
+
+	while (start <= list.size()) {
+		std::string::size_type	comma = list.find(',', start);
+		std::string::size_type	len = (comma == std::string::npos)
+			? list.size() - start : comma - start;
+
+		if (!validChannel(list.substr(start, len))) {
+			return false;
+		}
+		if (comma == std::string::npos) {
+			break ;
+		}
+		start = comma + 1;
+	}
+	return true;
+}
+
+/**
+* Validate the parsed args against the arity rules commented out above plus
+* per-command syntax. Returns true with errNum = 0 when accepted, otherwise
+* false with the IRC numeric to reply with:
+*   421 unknown command     461 wrong parameter count / empty password
+*   432 erroneous nickname  411/412 no recipient / no text (PRIVMSG)
+*   476 malformed channel mask
+* One bounds check + one indexed array read instead of a switch; the count
+* check runs first, so the args[] indexes below are always in range.
+*/
+void	Command::validateArgs() {
+	typedef std::pair<std::size_t, std::size_t>	argCount;
+
+	static const argCount	limits[] = {
+		argCount(1, 1),	// PASS
+		argCount(4, 4),	// USER
+		argCount(1, 1),	// NICK
+		argCount(1, 2),	// JOIN
+		argCount(2, 2),	// PRIVMSG
+		argCount(2, 3),	// KICK
+		argCount(2, 2),	// INVITE
+		argCount(1, 2),	// TOPIC
+		argCount(1, 0)	// MODE: no upper bound
+	};
+
+	if (this->type < PASS || this->type > MODE) {
+		throw	CommandException(ERR_UNKNOWNCOMMAND, client);
+	}
+	const argCount& count = limits[this->type];
+
+	if (this->args.size() < count.first || (count.second && this->args.size() > count.second)) {
+		throw	CommandException(ERR_NEEDMOREPARAMS, client);
+	}
+
+	if (this->type == PASS && this->args[0].empty()) {
+		throw CommandException(ERR_NEEDMOREPARAMS, client);
+	}
+
+	if (this->type == NICK && !validNickname(this->args[0])) {
+		throw CommandException(ERR_ERRONEUSNICKNAME, client);
+	}
+	if (this->type == JOIN && !validChannelList(this->args[0])) {
+		throw CommandException(ERR_BADCHANMASK, client);
+	}
+
+	if (this->type == PRIVMSG) {
+		if (this->args.size() && this->args.at(0).empty()) {
+			throw CommandException(ERR_NORECIPIENT, client);
+		}
+		if (this->args.size() > 1 && this->args.at(1).empty()) {
+			throw CommandException(ERR_NOTEXTTOSEND, client);
+		}
+	}
+	/*
+		Channel specific Checks
+	*/
+	if (this->type == KICK || this->type == TOPIC || this->type == MODE) {
+		if (!validChannel(this->args[0])) {
+			throw CommandException(ERR_BADCHANMASK, client);
+		}
+	}
+	if (this->type == INVITE) {
+		if (this->args.size() && !validNickname(this->args[0])) {
+			throw CommandException(ERR_ERRONEUSNICKNAME, client);
+		}
+		if (this->args.size() > 1 && !validChannel(this->args[1])) {
+			throw CommandException(ERR_BADCHANMASK, client);
+		}
+	}
 }
 
 /*
@@ -167,8 +260,4 @@ std::vector<std::string>	Command::getArgs() const {
 
 bool	Command::getValid() const {
 	return this->valid;
-}
-
-std::size_t	Command::getErrNum() const {
-	return this->errNum;
 }

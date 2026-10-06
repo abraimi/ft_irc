@@ -1,5 +1,6 @@
 #include "../include/Server.hpp"
 #include "Command.hpp"
+#include "CommandException.hpp"
 #include <cstddef>
 #include <string>
 #include <sys/poll.h>
@@ -158,19 +159,23 @@ void Server::run()
 					{
 						Client *client = getClientByFd(client_fd);
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						Command	cmd;
+						Command	cmd(client);
 
-						cmd.parseCommand(client->getBuff());
-
-						std::cout << "Valid: " << cmd.getValid()
+						try {
+						
+							cmd.parseCommand(client->getBuff());
+							cmd.validateArgs();
+							std::cout << "Valid: " << cmd.getValid()
 							<< "Cmd type: " << cmd.getType()
 							<< "Authority: " << cmd.getAuthority()
-							<< "ErrNum: " << cmd.getErrNum()
-						<< std::endl;
-						for (size_t idx = 0; idx < cmd.getArgs().size(); idx++) {
-							std::cout <<
-								cmd.getArgs().at(idx) << ","
 							<< std::endl;
+							for (size_t idx = 0; idx < cmd.getArgs().size(); idx++) {
+								std::cout <<
+								cmd.getArgs().at(idx) << ","
+								<< std::endl;
+							}
+						} catch (CommandException& e) {
+							std::cerr << "ERROR: " << e.what() << std::endl;
 						}
 						/**
 							TODO: In here the execution of the command should be added 
