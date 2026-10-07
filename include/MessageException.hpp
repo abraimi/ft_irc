@@ -1,5 +1,5 @@
-#ifndef COMMANDEXCEPTION_HPP
-#define COMMANDEXCEPTION_HPP
+#ifndef MESSAGEEXCEPTION_HPP
+#define MESSAGEEXCEPTION_HPP
 
 #include "Client.hpp"
 #include <exception>
@@ -50,7 +50,7 @@ enum ErrNum_t {
 typedef std::pair<ErrNum_t, std::string>	ErrStrType;
 typedef std::map<ErrNum_t, std::string>		ErrStrMapType;
 
-class CommandException : public std::exception {
+class MessageException : public std::exception {
 	private:
 		ErrNum_t	errNum;
 		std::string	errStr;
@@ -59,12 +59,12 @@ class CommandException : public std::exception {
 		static ErrStrMapType		initErrStrs();
 
 		public:
-		CommandException();
-		CommandException(ErrNum_t err, Client* client);
-		CommandException(ErrNum_t err, const std::string& param, const std::string& server);
-		virtual ~CommandException() throw();
+		MessageException();
+		MessageException(ErrNum_t err, Client* client);
+		MessageException(ErrNum_t err, const std::string& param, const std::string& server);
+		virtual ~MessageException() throw();
 			
 		virtual const char* what() const throw();
 };
 
-#endif // COMMANDEXCEPTION_HPP
+#endif // MESSAGEEXCEPTION_HPP

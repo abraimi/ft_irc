@@ -1,5 +1,5 @@
-#ifndef COMMAND_HPP
-#define COMMAND_HPP
+#ifndef MESSAGE_HPP
+#define MESSAGE_HPP
 
 #include "Client.hpp"
 #include <string>
@@ -28,12 +28,12 @@ enum Command_t {
 };
 
 
-class Command {
+class Message {
 	private:
 		Client						*client;
 
 		Authority_t					authority;
-		Command_t					type;
+		Command_t					cmdType;
 		std::vector<std::string>	args;
 		bool						valid;		// false => nothing to execute (CmdType stays UNKNOWN)
 
@@ -45,10 +45,10 @@ class Command {
 		Command_t	commandType(const std::string& command);
 
 	public:
-		Command(Client *client);
-		~Command();
+		Message(Client *client);
+		~Message();
 
-		void	parseCommand(const std::string &line);
+		void	parseMessage(const std::string &line);
 		void	validateArgs();
 
 		/* Getters */
@@ -58,4 +58,4 @@ class Command {
 		bool						getValid() const;
 };
 
-#endif // COMMAND_HPP
+#endif // MESSAGE_HPP

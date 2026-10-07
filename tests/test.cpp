@@ -1,4 +1,4 @@
-#include "Command.hpp"
+#include "Message.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -29,8 +29,8 @@ static std::string	join(const std::vector<std::string> &v)
 static void	expect(const std::string &name, const std::string &line,
 					bool expValid, const std::string &expArgs)
 {
-	Command		c;
-	Command_t	cmd = c.parseCommand(line);
+	Message		c;
+	Command_t	cmd = c.parseMessage(line);
 	std::string	got = join(cmd.args); // empty for invalid lines
 
 	g_checks++;
@@ -99,9 +99,9 @@ int	main()
 
 	std::cout << "-- parser state --" << std::endl;
 	{
-		Command		c;
-		Command_t	first = c.parseCommand("FIRST one");
-		Command_t	again = c.parseCommand("SECOND two"); // same parser reused
+		Message		c;
+		Command_t	first = c.parseMessage("FIRST one");
+		Command_t	again = c.parseMessage("SECOND two"); // same parser reused
 
 		expectState("tokens cleared between parses",
 			first.args.size() == 1 && first.args[0] == "one"

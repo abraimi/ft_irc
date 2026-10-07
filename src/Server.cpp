@@ -1,7 +1,6 @@
-#include "../include/Server.hpp"
-#include "Command.hpp"
-#include "CommandException.hpp"
-#include <cstddef>
+#include "Server.hpp"
+#include "Message.hpp"
+#include "MessageException.hpp"
 #include <string>
 #include <sys/poll.h>
 #include <sys/socket.h>
@@ -159,23 +158,26 @@ void Server::run()
 					{
 						Client *client = getClientByFd(client_fd);
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						Command	cmd(client);
+						Message	msg(client);
 
 						try {
-						
-							cmd.parseCommand(client->getBuff());
-							cmd.validateArgs();
-							std::cout << "Valid: " << cmd.getValid()
-							<< "Cmd type: " << cmd.getType()
-							<< "Authority: " << cmd.getAuthority()
+							msg.parseMessage(client->getBuff());
+							msg.validateArgs();
+							std::cout << "Valid: " << msg.getValid()
+							<< "Msg type: " << msg.getType()
+							<< "Authority: " << msg.getAuthority()
 							<< std::endl;
-							for (size_t idx = 0; idx < cmd.getArgs().size(); idx++) {
+							for (size_t idx = 0; idx < msg.getArgs().size(); idx++) {
 								std::cout <<
-								cmd.getArgs().at(idx) << ","
+								msg.getArgs().at(idx) << ","
 								<< std::endl;
 							}
-						} catch (CommandException& e) {
+						} catch (MessageException& e) {
 							std::cerr << "ERROR: " << e.what() << std::endl;
+						} catch (std::runtime_error& e) {
+							std::cerr << "Runtime Exception: " << e.what() << std::endl;
+						} catch (...) {
+							std::cerr << "Unknown Exception" << std::endl;
 						}
 						/**
 							TODO: In here the execution of the command should be added 

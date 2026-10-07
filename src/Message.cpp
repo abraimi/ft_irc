@@ -1,19 +1,19 @@
-#include "Command.hpp"
+#include "Message.hpp"
 #include "Client.hpp"
-#include "CommandException.hpp"
+#include "MessageException.hpp"
 #include <map>
 #include <string>
 #include <utility>
 
-Command::Command(Client* client): client(client), authority(REGULAR), type(UNKNOWN), args(), valid(false) {}
+Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UNKNOWN), args(), valid(false) {}
 
-Command::~Command() {}
+Message::~Message() {}
 
 static bool	isSeparator(char c) {
 	return (c == ' ' || c == '\t');
 }
 
-std::string	Command::sanitize(const std::string &line)
+std::string	Message::sanitize(const std::string &line)
 {
 	std::string	toClean = line;
 	std::size_t	lastOf = toClean.find_last_not_of("\r\n");
@@ -35,7 +35,7 @@ void	skipSpaces(const std::string& line, std::string::iterator& it) {
 	}
 }
 
-void	Command::tokenize(std::string& line, std::string::iterator& it) {
+void	Message::tokenize(std::string& line, std::string::iterator& it) {
 	std::string::iterator	textEnd, textBegin;
 
 	for (; 0x69420F; ) {
@@ -64,7 +64,7 @@ void	Command::tokenize(std::string& line, std::string::iterator& it) {
 * @return Command_t: which is a struct consisting of [cmd, args, valid, errNum].
 **/
 // TODO: this will change later since the struct will be merged into the class private attributes.
-void	Command::parseCommand(const std::string &line) {
+void	Message::parseMessage(const std::string &line) {
 	std::string				sanitized = this->sanitize(line);
 	std::string::iterator	it = sanitized.begin();
 
@@ -92,14 +92,14 @@ void	Command::parseCommand(const std::string &line) {
 	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
 		if (!idx) {
 			// TODO: Create a function that will return the appropriate cmd type from a string;
-			this->type = commandType(this->tokens.at(idx));
+			this->cmdType = commandType(this->tokens.at(idx));
 			continue ;
 		}
 		this->args.push_back(this->tokens.at(idx));
 	}
 }
 
-Command_t	Command::commandType(const std::string& command) {
+Command_t	Message::commandType(const std::string& command) {
 	typedef std::pair<std::string, Command_t>	Entry;
 
     static const Entry entries[] = {
@@ -171,17 +171,7 @@ static bool	validChannelList(const std::string& list) {
 	return true;
 }
 
-/**
-* Validate the parsed args against the arity rules commented out above plus
-* per-command syntax. Returns true with errNum = 0 when accepted, otherwise
-* false with the IRC numeric to reply with:
-*   421 unknown command     461 wrong parameter count / empty password
-*   432 erroneous nickname  411/412 no recipient / no text (PRIVMSG)
-*   476 malformed channel mask
-* One bounds check + one indexed array read instead of a switch; the count
-* check runs first, so the args[] indexes below are always in range.
-*/
-void	Command::validateArgs() {
+void	Message::validateArgs() {
 	typedef std::pair<std::size_t, std::size_t>	argCount;
 
 	static const argCount	limits[] = {
@@ -196,48 +186,48 @@ void	Command::validateArgs() {
 		argCount(1, 0)	// MODE: no upper bound
 	};
 
-	if (this->type < PASS || this->type > MODE) {
-		throw	CommandException(ERR_UNKNOWNCOMMAND, client);
+	if (this->cmdType < PASS || this->cmdType > MODE) {
+		throw	MessageException(ERR_UNKNOWNCOMMAND, client);
 	}
-	const argCount& count = limits[this->type];
+	const argCount& count = limits[this->cmdType];
 
 	if (this->args.size() < count.first || (count.second && this->args.size() > count.second)) {
-		throw	CommandException(ERR_NEEDMOREPARAMS, client);
+		throw	MessageException(ERR_NEEDMOREPARAMS, client);
 	}
 
-	if (this->type == PASS && this->args[0].empty()) {
-		throw CommandException(ERR_NEEDMOREPARAMS, client);
+	if (this->cmdType == PASS && this->args[0].empty()) {
+		throw MessageException(ERR_NEEDMOREPARAMS, client);
 	}
 
-	if (this->type == NICK && !validNickname(this->args[0])) {
-		throw CommandException(ERR_ERRONEUSNICKNAME, client);
+	if (this->cmdType == NICK && !validNickname(this->args[0])) {
+		throw MessageException(ERR_ERRONEUSNICKNAME, client);
 	}
-	if (this->type == JOIN && !validChannelList(this->args[0])) {
-		throw CommandException(ERR_BADCHANMASK, client);
+	if (this->cmdType == JOIN && !validChannelList(this->args[0])) {
+		throw MessageException(ERR_BADCHANMASK, client);
 	}
 
-	if (this->type == PRIVMSG) {
+	if (this->cmdType == PRIVMSG) {
 		if (this->args.size() && this->args.at(0).empty()) {
-			throw CommandException(ERR_NORECIPIENT, client);
+			throw MessageException(ERR_NORECIPIENT, client);
 		}
 		if (this->args.size() > 1 && this->args.at(1).empty()) {
-			throw CommandException(ERR_NOTEXTTOSEND, client);
+			throw MessageException(ERR_NOTEXTTOSEND, client);
 		}
 	}
 	/*
 		Channel specific Checks
 	*/
-	if (this->type == KICK || this->type == TOPIC || this->type == MODE) {
+	if (this->cmdType == KICK || this->cmdType == TOPIC || this->cmdType == MODE) {
 		if (!validChannel(this->args[0])) {
-			throw CommandException(ERR_BADCHANMASK, client);
+			throw MessageException(ERR_BADCHANMASK, client);
 		}
 	}
-	if (this->type == INVITE) {
+	if (this->cmdType == INVITE) {
 		if (this->args.size() && !validNickname(this->args[0])) {
-			throw CommandException(ERR_ERRONEUSNICKNAME, client);
+			throw MessageException(ERR_ERRONEUSNICKNAME, client);
 		}
 		if (this->args.size() > 1 && !validChannel(this->args[1])) {
-			throw CommandException(ERR_BADCHANMASK, client);
+			throw MessageException(ERR_BADCHANMASK, client);
 		}
 	}
 }
@@ -246,18 +236,18 @@ void	Command::validateArgs() {
 	Getters
 */
 
-Authority_t	Command::getAuthority() const {
+Authority_t	Message::getAuthority() const {
 	return this->authority;
 }
 
-Command_t	Command::getType() const {
-	return this->type;
+Command_t	Message::getType() const {
+	return this->cmdType;
 }
 
-std::vector<std::string>	Command::getArgs() const {
+std::vector<std::string>	Message::getArgs() const {
 	return this->args;
 }
 
-bool	Command::getValid() const {
+bool	Message::getValid() const {
 	return this->valid;
 }

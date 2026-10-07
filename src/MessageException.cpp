@@ -1,4 +1,4 @@
-#include "CommandException.hpp"
+#include "MessageException.hpp"
 #include <map>
 #include <sstream>
 
@@ -8,7 +8,7 @@
 * Returns the table that initializes the static const ErrStrs member,
 * built exactly once before main; every later use is a map lookup by key.
 */
-ErrStrMapType CommandException::initErrStrs() {
+ErrStrMapType MessageException::initErrStrs() {
 	static const ErrStrType errs[] = {
 		ErrStrType(ERR_NOSUCHNICK, "No such nick/channel"), 
 		ErrStrType(ERR_NOSUCHCHANNEL, "No such channel"), 
@@ -39,12 +39,12 @@ ErrStrMapType CommandException::initErrStrs() {
 	return ErrStrMapType(errs, errs + (sizeof(errs) / sizeof(errs[0])));
 }
 
-const ErrStrMapType	CommandException::ErrStrs = CommandException::initErrStrs();
+const ErrStrMapType	MessageException::ErrStrs = MessageException::initErrStrs();
 
-CommandException::CommandException(): errNum(ERR_NONE), errStr() {}
+MessageException::MessageException(): errNum(ERR_NONE), errStr() {}
 
 
-CommandException::CommandException(ErrNum_t errNum, Client* client):
+MessageException::MessageException(ErrNum_t errNum, Client* client):
 	errNum(errNum), errStr() {
 	ErrStrMapType::const_iterator	it = ErrStrs.find(errNum);
 	std::ostringstream				line;
@@ -65,9 +65,9 @@ CommandException::CommandException(ErrNum_t errNum, Client* client):
 	errStr = line.str();
 }
 
-CommandException::~CommandException() throw() {
+MessageException::~MessageException() throw() {
 }
 
-const char*	CommandException::what() const throw() {
+const char*	MessageException::what() const throw() {
 	return this->errStr.c_str();
 }
