@@ -161,17 +161,20 @@ void Server::run()
 						Message	msg(client);
 
 						try {
+							std::cout << "Client buffer: \n\n" << client->getBuff() << "\n\n" << std::endl;
 							msg.parseMessage(client->getBuff());
 							msg.validateArgs();
-							std::cout << "Valid: " << msg.getValid()
-							<< "Msg type: " << msg.getType()
-							<< "Authority: " << msg.getAuthority()
+							std::cout << "\nValid: " << msg.getValid()
+							<< "\nMsg type: " << msg.getType()
+							<< "\nAuthority: " << msg.getAuthority()
 							<< std::endl;
+							std::cout << "[";
 							for (size_t idx = 0; idx < msg.getArgs().size(); idx++) {
-								std::cout <<
-								msg.getArgs().at(idx) << ","
-								<< std::endl;
+								std::cout << "\"" <<
+								msg.getArgs().at(idx) << "\",";
 							}
+							std::cout << "]" << std::endl;
+
 						} catch (MessageException& e) {
 							std::cerr << "ERROR: " << e.what() << std::endl;
 						} catch (std::runtime_error& e) {

@@ -3,7 +3,6 @@
 #include "MessageException.hpp"
 #include <map>
 #include <string>
-#include <utility>
 
 Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UNKNOWN), args(), valid(false) {}
 
@@ -12,6 +11,15 @@ Message::~Message() {}
 static bool	isSeparator(char c) {
 	return (c == ' ' || c == '\t');
 }
+
+void	skipSpaces(const std::string& line, std::string::iterator& it) {
+	for (; it != line.end(); it++) {
+		if (!isSeparator(*it)) {
+			break ;
+		}
+	}
+}
+
 
 std::string	Message::sanitize(const std::string &line)
 {
@@ -25,14 +33,6 @@ std::string	Message::sanitize(const std::string &line)
 	}
 
 	return (toClean);
-}
-
-void	skipSpaces(const std::string& line, std::string::iterator& it) {
-	for (; it != line.end(); it++) {
-		if (!isSeparator(*it)) {
-			break ;
-		}
-	}
 }
 
 void	Message::tokenize(std::string& line, std::string::iterator& it) {
@@ -57,13 +57,6 @@ void	Message::tokenize(std::string& line, std::string::iterator& it) {
 
 }
 
-/**
-* @brief This function parses the buffer in the client class which is used to construct this class
-*
-* @param
-* @return Command_t: which is a struct consisting of [cmd, args, valid, errNum].
-**/
-// TODO: this will change later since the struct will be merged into the class private attributes.
 void	Message::parseMessage(const std::string &line) {
 	std::string				sanitized = this->sanitize(line);
 	std::string::iterator	it = sanitized.begin();
@@ -71,37 +64,38 @@ void	Message::parseMessage(const std::string &line) {
 	this->tokens.clear();
 	skipSpaces(line, it);
 	if (it == line.end()) {
-		return ; // TODO: Check the errNUms to set it before exiting the function call stack;
+		throw MessageException(ERR_NOTEXTTOSEND, this->client);
 	}
-	// ! This might look repetetive as in tekenize, but this one checks ':' at the start of the command & skips it, meanwhile tokenize checks it at the mid/end;
 	// ! Like this example: :nick!user@host PRIVMSG ...
 	//! Which is skiped to leave PRIVMSG ... only
 	if (*it == ':') {
 		for (; it != sanitized.end() && !isSeparator(*it); it++) ;
 		skipSpaces(sanitized, it);
 		if (it == sanitized.end()) {
-			return ; // TODO: Check the errNUms to set it before exiting the function call stack;
+			throw MessageException(ERR_NOTEXTTOSEND, this->client);
 		}
 	}
 
 	tokenize(sanitized, it);
 	if (this->tokens.empty()) {
-		return ; // TODO: Check the errNUms to set it before exiting the function call stack;
+		throw MessageException(ERR_NOTEXTTOSEND, this->client);
 	}
-	this->valid = true;
 	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
 		if (!idx) {
-			// TODO: Create a function that will return the appropriate cmd type from a string;
+			for (std::string::iterator it = this->tokens.at(idx).begin(); it != this->tokens.at(idx).end(); it++) {
+				*it = static_cast<char>(std::toupper(*it));
+			}
 			this->cmdType = commandType(this->tokens.at(idx));
 			continue ;
 		}
 		this->args.push_back(this->tokens.at(idx));
 	}
+	this->valid = true;
 }
 
 Command_t	Message::commandType(const std::string& command) {
 	typedef std::pair<std::string, Command_t>	Entry;
-
+	typedef std::map<std::string, Command_t> 	EntryMap;
     static const Entry entries[] = {
         Entry("USER", USER), Entry("PASS", PASS),
         Entry("NICK", NICK), Entry("JOIN", JOIN),
@@ -109,8 +103,8 @@ Command_t	Message::commandType(const std::string& command) {
 		Entry("KICK", KICK), Entry("INVITE", INVITE),
 		Entry("TOPIC", TOPIC), Entry("MODE", MODE)
     };
-	static const std::map<std::string, Command_t>		types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
-	std::map<std::string, Command_t>::const_iterator	it = types.find(command);
+	static const EntryMap		types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
+	EntryMap::const_iterator	it = types.find(command);
 
 	if (it == types.end()) {
 		return UNKNOWN;
