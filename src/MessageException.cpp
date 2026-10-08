@@ -66,6 +66,24 @@ MessageException::MessageException(ErrNum_t errNum, Client* client):
 	errStr = line.str();
 }
 
+MessageException::MessageException(ErrNum_t errNum, Client* client,
+		const std::string& param): errNum(errNum), errStr() {
+	ErrStrMapType::const_iterator	it = ErrStrs.find(errNum);
+	std::ostringstream				line;
+
+	line << ":ft_irc " << errNum << " "
+		<< (client->getNickname().empty() ? "*" : client->getNickname());
+	if (!param.empty())
+		line << " " << param;
+	line << " :";
+	if (it != ErrStrs.end())
+		line << it->second;
+	else
+		line << "Unknown error";
+	line << "\r\n";
+	errStr = line.str();
+}
+
 MessageException::~MessageException() throw() {
 }
 

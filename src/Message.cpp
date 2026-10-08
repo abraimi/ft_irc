@@ -4,7 +4,7 @@
 #include <map>
 #include <string>
 
-Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UNKNOWN), args(), valid(false) {}
+Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UNKNOWN), commandName(), args(), valid(false) {}
 
 Message::~Message() {}
 
@@ -83,6 +83,7 @@ void	Message::parseMessage(const std::string &line) {
 	this->args.clear();
 	this->authority = REGULAR;
 	this->cmdType = UNKNOWN;
+	this->commandName.clear();
 	this->valid = false;
 
 	skipSpaces(sanitized, it);
@@ -105,6 +106,7 @@ void	Message::parseMessage(const std::string &line) {
 	}
 	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
 		if (!idx) {
+			this->commandName = this->tokens.at(idx);
 			for (std::string::iterator it = this->tokens.at(idx).begin(); it != this->tokens.at(idx).end(); it++) {
 				*it = static_cast<char>(std::toupper(*it));
 			}
@@ -183,9 +185,8 @@ void	Message::validateArgs() {
 		argCount(1, 0)	// MODE: no upper bound
 	};
 
-	if (this->cmdType < PASS || this->cmdType > MODE) {
-		throw	MessageException(ERR_UNKNOWNCOMMAND, client);
-	}
+	if (this->cmdType == UNKNOWN)
+		return;
 	const argCount& count = limits[this->cmdType];
 
 	if (this->args.size() < count.first || (count.second && this->args.size() > count.second)) {
@@ -272,6 +273,10 @@ Authority_t	Message::getAuthority() const {
 
 Command_t	Message::getType() const {
 	return this->cmdType;
+}
+
+const std::string	&Message::getCommandName() const {
+	return this->commandName;
 }
 
 std::vector<std::string>	Message::getArgs() const {

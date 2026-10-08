@@ -34,6 +34,7 @@ class Message {
 
 		Authority_t					authority;
 		Command_t					cmdType;
+		std::string					commandName;
 		std::vector<std::string>	args;
 		bool						valid;		// false => nothing to execute (CmdType stays UNKNOWN)
 
@@ -55,6 +56,7 @@ class Message {
 		/* Getters */
 		Authority_t					getAuthority() const;
 		Command_t					getType() const;
+		const std::string			&getCommandName() const;
 		std::vector<std::string>	getArgs() const;
 		bool						getValid() const;
 };

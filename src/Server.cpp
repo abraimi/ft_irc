@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "Dispatcher.hpp"
 #include "Message.hpp"
 #include "MessageException.hpp"
 #include <string>
@@ -164,6 +165,11 @@ void Server::run()
 							try {
 								if (!msg.parseNextMessage())
 									break;
+								if (msg.getType() == UNKNOWN) {
+									Dispatcher dispatcher(*this, *client, NULL, msg);
+									dispatcher.dispatch();
+									continue;
+								}
 								msg.validateArgs();
 								std::cout << "\nValid: " << msg.getValid()
 								<< "\nMsg type: " << msg.getType()

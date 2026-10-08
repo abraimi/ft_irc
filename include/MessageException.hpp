@@ -62,6 +62,7 @@ class MessageException : public std::exception {
 		public:
 		MessageException();
 		MessageException(ErrNum_t err, Client* client);
+		MessageException(ErrNum_t err, Client* client, const std::string& param);
 		MessageException(ErrNum_t err, const std::string& param, const std::string& server);
 		virtual ~MessageException() throw();
 			
