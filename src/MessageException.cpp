@@ -34,6 +34,7 @@ ErrStrMapType MessageException::initErrStrs() {
 		ErrStrType(ERR_BADCHANNELKEY, "Cannot join channel (+k)"), 
 		ErrStrType(ERR_BADCHANMASK, "Bad channel mask"), 
 		ErrStrType(ERR_CHANOPRIVSNEEDED, "You're not channel operator"), 
+		ErrStrType(ERR_INVALIDMODEPARAM, "Invalid mode parameter"),
 	};
 
 	return ErrStrMapType(errs, errs + (sizeof(errs) / sizeof(errs[0])));

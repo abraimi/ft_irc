@@ -8,6 +8,24 @@ Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UN
 
 Message::~Message() {}
 
+bool	Message::parseNextMessage() {
+	if (!this->client) {
+		return false;
+	}
+
+	std::string	&buffer = this->client->getBuff();
+	std::string::size_type	end = buffer.find("\r\n");
+
+	if (end == std::string::npos) {
+		return false;
+	}
+
+	std::string	line = buffer.substr(0, end);
+	buffer.erase(0, end + 2);
+	this->parseMessage(line);
+	return true;
+}
+
 static bool	isSeparator(char c) {
 	return (c == ' ' || c == '\t');
 }
@@ -62,8 +80,13 @@ void	Message::parseMessage(const std::string &line) {
 	std::string::iterator	it = sanitized.begin();
 
 	this->tokens.clear();
-	skipSpaces(line, it);
-	if (it == line.end()) {
+	this->args.clear();
+	this->authority = REGULAR;
+	this->cmdType = UNKNOWN;
+	this->valid = false;
+
+	skipSpaces(sanitized, it);
+	if (it == sanitized.end()) {
 		throw MessageException(ERR_NOTEXTTOSEND, this->client);
 	}
 	// ! Like this example: :nick!user@host PRIVMSG ...
@@ -100,8 +123,8 @@ Command_t	Message::commandType(const std::string& command) {
         Entry("USER", USER), Entry("PASS", PASS),
         Entry("NICK", NICK), Entry("JOIN", JOIN),
 		Entry("PRIVMSG", PRIVMSG), Entry("KICK", KICK),
-		Entry("KICK", KICK), Entry("INVITE", INVITE),
-		Entry("TOPIC", TOPIC), Entry("MODE", MODE)
+		Entry("INVITE", INVITE), Entry("TOPIC", TOPIC), 
+		Entry("MODE", MODE)
     };
 	static const EntryMap		types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
 	EntryMap::const_iterator	it = types.find(command);
@@ -145,26 +168,6 @@ static bool	validChannel(const std::string& name) {
 	}
 	return true;
 }
-//TODO: This function may need to be removed and replaced a more thorough one.
-static bool	validChannelList(const std::string& list) {
-	std::string::size_type	start = 0;
-
-	while (start <= list.size()) {
-		std::string::size_type	comma = list.find(',', start);
-		std::string::size_type	len = (comma == std::string::npos)
-			? list.size() - start : comma - start;
-
-		if (!validChannel(list.substr(start, len))) {
-			return false;
-		}
-		if (comma == std::string::npos) {
-			break ;
-		}
-		start = comma + 1;
-	}
-	return true;
-}
-
 void	Message::validateArgs() {
 	typedef std::pair<std::size_t, std::size_t>	argCount;
 
@@ -196,8 +199,12 @@ void	Message::validateArgs() {
 	if (this->cmdType == NICK && !validNickname(this->args[0])) {
 		throw MessageException(ERR_ERRONEUSNICKNAME, client);
 	}
-	if (this->cmdType == JOIN && !validChannelList(this->args[0])) {
-		throw MessageException(ERR_BADCHANMASK, client);
+	if (this->cmdType == JOIN) {
+		if (!validChannel(this->args[0])
+			|| (this->args.size() > 1
+				&& this->args[1].find(',') != std::string::npos)) {
+			throw MessageException(ERR_BADCHANMASK, client);
+		}
 	}
 
 	if (this->cmdType == PRIVMSG) {
@@ -214,6 +221,35 @@ void	Message::validateArgs() {
 	if (this->cmdType == KICK || this->cmdType == TOPIC || this->cmdType == MODE) {
 		if (!validChannel(this->args[0])) {
 			throw MessageException(ERR_BADCHANMASK, client);
+		}
+	}
+	if (this->cmdType == MODE && this->args.size() > 1) {
+		const std::string& mode = this->args[1];
+		if (mode.empty() || (mode[0] != '+' && mode[0] != '-')) {
+			throw MessageException(ERR_INVALIDMODEPARAM, client);
+		}
+		for (std::string::size_type i = 1; i < mode.size(); ++i) {
+			if (mode[i] != 'i' && mode[i] != 't' && mode[i] != 'k'
+				&& mode[i] != 'o' && mode[i] != 'l') {
+				throw MessageException(ERR_UNKNOWNMODE, client);
+			}
+		}
+		if (mode.size() != 2) {
+			throw MessageException(ERR_INVALIDMODEPARAM, client);
+		}
+
+		bool needsParameter = mode[1] == 'k' || mode[1] == 'o'
+			|| (mode[1] == 'l' && mode[0] == '+');
+		if (needsParameter) {
+			if (this->args.size() < 3) {
+				throw MessageException(ERR_NEEDMOREPARAMS, client);
+			}
+			if (this->args.size() > 3 || this->args[2].empty()) {
+				throw MessageException(ERR_INVALIDMODEPARAM, client);
+			}
+		}
+		else if (this->args.size() != 2) {
+			throw MessageException(ERR_INVALIDMODEPARAM, client);
 		}
 	}
 	if (this->cmdType == INVITE) {

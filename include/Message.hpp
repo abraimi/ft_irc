@@ -48,6 +48,7 @@ class Message {
 		Message(Client *client);
 		~Message();
 
+		bool	parseNextMessage();
 		void	parseMessage(const std::string &line);
 		void	validateArgs();
 

@@ -160,27 +160,28 @@ void Server::run()
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
 						Message	msg(client);
 
-						try {
-							std::cout << "Client buffer: \n\n" << client->getBuff() << "\n\n" << std::endl;
-							msg.parseMessage(client->getBuff());
-							msg.validateArgs();
-							std::cout << "\nValid: " << msg.getValid()
-							<< "\nMsg type: " << msg.getType()
-							<< "\nAuthority: " << msg.getAuthority()
-							<< std::endl;
-							std::cout << "[";
-							for (size_t idx = 0; idx < msg.getArgs().size(); idx++) {
-								std::cout << "\"" <<
-								msg.getArgs().at(idx) << "\",";
+						while (true) {
+							try {
+								if (!msg.parseNextMessage())
+									break;
+								msg.validateArgs();
+								std::cout << "\nValid: " << msg.getValid()
+								<< "\nMsg type: " << msg.getType()
+								<< "\nAuthority: " << msg.getAuthority()
+								<< std::endl;
+								std::cout << "[";
+								for (size_t idx = 0; idx < msg.getArgs().size(); idx++) {
+									std::cout << "\"" << msg.getArgs().at(idx) << "\",";
+								}
+								std::cout << "]" << std::endl;
+							} catch (MessageException& e) {
+								std::cerr << "ERROR: " << e.what() << std::endl;
+								sendToClient(client, e.what());
+							} catch (std::runtime_error& e) {
+								std::cerr << "Runtime Exception: " << e.what() << std::endl;
+							} catch (...) {
+								std::cerr << "Unknown Exception" << std::endl;
 							}
-							std::cout << "]" << std::endl;
-
-						} catch (MessageException& e) {
-							std::cerr << "ERROR: " << e.what() << std::endl;
-						} catch (std::runtime_error& e) {
-							std::cerr << "Runtime Exception: " << e.what() << std::endl;
-						} catch (...) {
-							std::cerr << "Unknown Exception" << std::endl;
 						}
 						/**
 							TODO: In here the execution of the command should be added 

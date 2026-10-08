@@ -9,9 +9,9 @@
 
 /**
 * IRC numeric errors required by the supported Command_t set
-* (PASS USER NICK JOIN PRIVMSG KICK INVITE TOPIC MODE) plus the
-* registration gate and UNKNOWN. Explicit values = the RFC 1459
-* wire numerics, so no magic numbers at the throw sites.
+ * (PASS USER NICK JOIN PRIVMSG KICK INVITE TOPIC MODE) plus the
+ * registration gate and UNKNOWN. Explicit values are IRC wire numerics,
+ * so no magic numbers appear at the throw sites.
 */
 enum ErrNum_t {
 	ERR_NONE = 0,
@@ -39,7 +39,8 @@ enum ErrNum_t {
 	ERR_BANNEDFROMCHAN   = 474, // JOIN
 	ERR_BADCHANNELKEY    = 475, // JOIN
 	ERR_BADCHANMASK      = 476, // JOIN
-	ERR_CHANOPRIVSNEEDED = 482  // KICK, TOPIC, MODE
+	ERR_CHANOPRIVSNEEDED = 482, // KICK, TOPIC, MODE
+	ERR_INVALIDMODEPARAM = 696  // MODE
 };
 
 /**
