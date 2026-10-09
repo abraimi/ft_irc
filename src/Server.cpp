@@ -65,6 +65,11 @@ Client *Server::getClientByFd(int fd)
 	return NULL;
 }
 
+const std::vector<Client *>& Server::getClients() const
+{
+	return _clients;
+}
+
 void Server::processMessage(Client *client, const std::string &msg) //just to check the way i retrieve msg parser need to implement it
 {
 	std::cout << "the complete msg from fd " << client->getFd() << ": " << msg << std::endl;
@@ -106,8 +111,7 @@ void Server::setUpSocket() {
 	std::cout << "Server Socket created and boud to port " << _port << std::endl;
 }
 
-void Server::run()
-{
+void Server::run() {
 	char buffer[4096];
 
 	while (true)
@@ -157,6 +161,9 @@ void Server::run()
 					}
 					else if (b_r > 0)
 					{
+						/**
+						* Shadow is inserting in here
+						**/
 						Client *client = getClientByFd(client_fd);
 						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
 						Message	msg(client);
@@ -165,23 +172,14 @@ void Server::run()
 							try {
 								if (!msg.parseNextMessage())
 									break;
-								if (msg.getType() == UNKNOWN) {
-									Dispatcher dispatcher(*this, *client, NULL, msg);
-									dispatcher.dispatch();
-									continue;
-								}
-								msg.validateArgs();
-								std::cout << "\nValid: " << msg.getValid()
-								<< "\nMsg type: " << msg.getType()
-								<< "\nAuthority: " << msg.getAuthority()
-								<< std::endl;
-								std::cout << "[";
-								for (size_t idx = 0; idx < msg.getArgs().size(); idx++) {
-									std::cout << "\"" << msg.getArgs().at(idx) << "\",";
-								}
-								std::cout << "]" << std::endl;
+
+								if (msg.getType() != UNKNOWN)
+									msg.validateArgs();
+								Dispatcher dispatcher(*this, *client, NULL, msg);
+								dispatcher.dispatch();
+								
 							} catch (MessageException& e) {
-								std::cerr << "ERROR: " << e.what() << std::endl;
+								std::cerr << "IRC_RESPONSE: " << e.what();
 								sendToClient(client, e.what());
 							} catch (std::runtime_error& e) {
 								std::cerr << "Runtime Exception: " << e.what() << std::endl;
@@ -190,32 +188,10 @@ void Server::run()
 							}
 						}
 						/**
-							TODO: In here the execution of the command should be added 
-						*/
-						// std::cout << "Valid: " << cmd.valid
-						// 	<< "Cmd type: " << cmd.type 
-						// 	<< "Authority: " << cmd.authority
-						// 	<< "ErrNum: " << cmd.errNum
-						// << std::endl;
-						// for (size_t idx = 0; idx < cmd.args.size(); idx++) {
-						// 	std::cout <<
-						// 		cmd.args.at(idx) << ","
-						// 	<< std::endl;
-						// }
-						// client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						// //!!! for testing only parser need to implement this
-						// std::string &client_buffer = client->getBuff();
-						// size_t pos = client_buffer.find("\r\n");
-						// while(pos != std::string::npos)
-						// {
-						// 	std::string msg = client_buffer.substr(0, pos);
-						// 	processMessage(client, msg); // eventually we will need to store this so it become the connection point to the server
-						// 	client_buffer.erase(0, pos + 2); // remove it after process 
-						// 	pos = client_buffer.find("\r\n"); //get next pos
-						// }
+						* Shadow in only inserting on top of this
+						**/
 					}
-					// std::cout << "client " << client_fd << " sent: " << buffer << std::endl;
-				}
+			}
 			}
 			if(_pollfds[i].revents & POLLOUT)
 			{
@@ -236,15 +212,11 @@ void Server::run()
 				i++;
 
 		}
-		
 	}
-	
 }
 
 
-
-void Server::start()
-{
+void Server::start() {
 	setUpSocket();
 	run();
 }
