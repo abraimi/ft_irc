@@ -11,6 +11,7 @@ class Client {
         std::string _sendBuff;
         bool        _isAuth; 
         bool        _isRegistered; // already connected NICK + USER = regisetered
+        std::string _hostname;
 
     public:
         Client(int fd);
@@ -30,6 +31,9 @@ class Client {
 
         void setRegister(bool isRegistered);
         bool isRegistered() const;
+
+        void setHostname(const std::string &hostname);
+        std::string getHostname() const;
 
         std::string &getSendBuff();
 };

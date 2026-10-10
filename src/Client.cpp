@@ -57,3 +57,13 @@ std::string &Client::getSendBuff()
 {
     return _sendBuff;
 }
+
+void Client::setHostname(const std::string &hostname)
+{
+    _hostname = hostname;
+}
+
+std::string Client::getHostname() const
+{
+    return _hostname;
+}
