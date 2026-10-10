@@ -25,12 +25,10 @@ class Channel {
 
 	public:
 		Channel(const std::string &name);
-		Channel();
 		~Channel();
 
-		const std::string &getName() const;
-
-		const std::string 	&getTopic() const;
+		const std::string	&getName() const;
+		const std::string	&getTopic() const;
 		void 				setTopic(const std::string &topic);
 
 		std::size_t 				getMemberCount() const;
@@ -39,30 +37,30 @@ class Channel {
 		bool 						addMember(Client *client);
 		bool 						removeMember(Client *client);
 
-		bool isOperator(const Client *client) const;
-		bool addOperator(Client *client);
-		bool removeOperator(Client *client);
+		bool	isOperator(const Client *client) const;
+		bool	addOperator(Client *client);
+		bool	removeOperator(Client *client);
 
-		bool isInvited(const Client *client) const;
-		bool invite(Client *client);
-		bool revokeInvite(Client *client);
-		bool isInviteOnly() const;
-		void setInviteOnly(bool enabled);
+		bool	isInvited(const Client *client) const;
+		bool	invite(Client *client);
+		bool	revokeInvite(Client *client);
+		bool	isInviteOnly() const;
+		void	setInviteOnly(bool enabled);
 
-		bool isTopicOperatorOnly() const;
-		void setTopicOperatorOnly(bool enabled);
+		bool	isTopicOperatorOnly() const;
+		void	setTopicOperatorOnly(bool enabled);
 
-		bool 				hasKey() const;
-		const std::string 	&getKey() const;
-		void 				setKey(const std::string &key);
-		void 				clearKey();
+		bool				hasKey() const;
+		const std::string	&getKey() const;
+		void				setKey(const std::string &key);
+		void				clearKey();
 
-		bool 		hasUserLimit() const;
-		std::size_t getUserLimit() const;
-		void 		setUserLimit(std::size_t limit);
-		void 		clearUserLimit();
+		bool		hasUserLimit() const;
+		std::size_t	getUserLimit() const;
+		void		setUserLimit(std::size_t limit);
+		void		clearUserLimit();
 
-		std::string getChannelModes() const;
+		std::string	getChannelModes() const;
 };
 
 #endif

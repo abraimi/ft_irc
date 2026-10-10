@@ -14,17 +14,17 @@ enum Command_t {
 	UNKNOWN = -1, // no (valid) command in the parsed line
 
 	// General commands
-	PASS, // PASS <password>
-	USER, // USER <username> <hostname> <servername> :<realname>
-	NICK, // NICK <nickname>
-	JOIN, // JOIN #channel <key>
-	PRIVMSG, // PRIVMSG <target>/#channel :<text>
+	PASS, // 0: PASS <password>
+	USER, // 1: USER <username> <hostname> <servername> :<realname>
+	NICK, // 2: NICK <nickname>
+	JOIN, // 3: JOIN #channel <key>
+	PRIVMSG, // 4:  PRIVMSG <target>/#channel :<text>
 
 	// Operator specific commands
-	KICK,
-	INVITE,
-	TOPIC,
-	MODE
+	KICK, // 5
+	INVITE, // 6
+	TOPIC, // 7
+	MODE // 8
 };
 
 

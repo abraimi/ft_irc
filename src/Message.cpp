@@ -1,6 +1,7 @@
 #include "Message.hpp"
 #include "Client.hpp"
 #include "MessageException.hpp"
+#include "Utils.hpp"
 #include <map>
 #include <string>
 
@@ -107,9 +108,7 @@ void	Message::parseMessage(const std::string &line) {
 	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
 		if (!idx) {
 			this->commandName = this->tokens.at(idx);
-			for (std::string::iterator it = this->tokens.at(idx).begin(); it != this->tokens.at(idx).end(); it++) {
-				*it = static_cast<char>(std::toupper(*it));
-			}
+			this->tokens.at(idx) = Utils::uppercase(this->tokens.at(idx));
 			this->cmdType = commandType(this->tokens.at(idx));
 			continue ;
 		}
@@ -211,6 +210,9 @@ void	Message::validateArgs() {
 	if (this->cmdType == PRIVMSG) {
 		if (this->args.size() && this->args.at(0).empty()) {
 			throw MessageException(ERR_NORECIPIENT, client);
+		}
+		if (this->args.size() && this->args.at(0).find(',') != std::string::npos) {
+			throw MessageException(ERR_TOOMANYTARGETS, client, this->args.at(0));
 		}
 		if (this->args.size() > 1 && this->args.at(1).empty()) {
 			throw MessageException(ERR_NOTEXTTOSEND, client);

@@ -15,6 +15,7 @@ ErrStrMapType MessageException::initErrStrs() {
 		ErrStrType(ERR_CANNOTSENDTOCHAN, "Cannot send to channel"), 
 		ErrStrType(ERR_NORECIPIENT, "No recipient given"), 
 		ErrStrType(ERR_NOTEXTTOSEND, "No text to send"), 
+		ErrStrType(ERR_TOOMANYTARGETS, "Too many targets"),
 		ErrStrType(ERR_UNKNOWNCOMMAND, "Unknown command"), 
 		ErrStrType(ERR_NONICKNAMEGIVEN, "No nickname given"), 
 		ErrStrType(ERR_ERRONEUSNICKNAME, "Erroneous nickname"), 
