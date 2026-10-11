@@ -10,8 +10,8 @@ class Message;
 
 class Dispatcher {
 	private:
-		Server&	_server;
-		Client&	_client;
+		Server&		_server;
+		Client&		_client;
 		Message&	_message;
 
 		typedef void (Dispatcher::*Handler)();

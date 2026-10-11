@@ -167,14 +167,16 @@ bool Server::handleClientRead(std::size_t index) {
 		if (line.size() <= 510)
 			processMessage(client, line);
 		else
-			sendToClient(client, ":ft_irc 417 " + (client->getNickname().empty() ? "*" : client->getNickname()) + " :Input line was too long\r\n");
+			sendToClient(client, Utils::composeNumericReply(*client, 417, "",
+				"Input line was too long"));
 		if (getClientByFd(fd) != client)
 			return false;
 		end = input.find("\r\n");
 	}
 	if (input.size() > 512) {
 		input.clear();
-		sendToClient(client, ":ft_irc 417 " + (client->getNickname().empty() ? "*" : client->getNickname()) + " :Input line was too long\r\n");
+		sendToClient(client, Utils::composeNumericReply(*client, 417, "",
+			"Input line was too long"));
 	}
 	return true;
 }

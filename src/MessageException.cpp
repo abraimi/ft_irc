@@ -1,13 +1,7 @@
 #include "MessageException.hpp"
+#include "Utils.hpp"
 #include <map>
-#include <sstream>
 
-/**
-* RFC 1459 trailing text for each numeric the supported commands need.
-* Dynamic bits (nick, channel, offending command) travel as `param`.
-* Returns the table that initializes the static const ErrStrs member,
-* built exactly once before main; every later use is a map lookup by key.
-*/
 ErrStrMapType MessageException::initErrStrs() {
 	static const ErrStrType errs[] = {
 		ErrStrType(ERR_NOSUCHNICK, "No such nick/channel"), 
@@ -49,44 +43,18 @@ MessageException::MessageException(): errNum(ERR_NONE), errStr() {}
 MessageException::MessageException(ErrNum_t errNum, Client* client):
 	errNum(errNum), errStr() {
 	ErrStrMapType::const_iterator	it = ErrStrs.find(errNum);
-	std::ostringstream				line;
-
-	line << ":" << "ft_irc" << " " 
-		<< errNum << " " 
-		<< (client->getNickname().empty() ? "*" : client->getNickname());
-	// if (!param.empty()) {
-	// 	line << " " << param;
-	// }
-	line << " :";
-	if (it != ErrStrs.end()) {
-		line << it->second;
-	} else {
-		line << "Unknown error";
-	}
-	line << "\r\n";
-	errStr = line.str();
+	const std::string reason = it == ErrStrs.end() ? "Unknown error" : it->second;
+	errStr = Utils::composeNumericReply(*client, static_cast<int>(errNum), "", reason);
 }
 
 MessageException::MessageException(ErrNum_t errNum, Client* client,
 		const std::string& param): errNum(errNum), errStr() {
 	ErrStrMapType::const_iterator	it = ErrStrs.find(errNum);
-	std::ostringstream				line;
-
-	line << ":ft_irc " << errNum << " "
-		<< (client->getNickname().empty() ? "*" : client->getNickname());
-	if (!param.empty())
-		line << " " << param;
-	line << " :";
-	if (it != ErrStrs.end())
-		line << it->second;
-	else
-		line << "Unknown error";
-	line << "\r\n";
-	errStr = line.str();
+	const std::string reason = it == ErrStrs.end() ? "Unknown error" : it->second;
+	errStr = Utils::composeNumericReply(*client, static_cast<int>(errNum), param, reason);
 }
 
-MessageException::~MessageException() throw() {
-}
+MessageException::~MessageException() throw() {}
 
 const char*	MessageException::what() const throw() {
 	return this->errStr.c_str();
