@@ -5,6 +5,9 @@
 #include "MessageException.hpp"
 #include "Utils.hpp"
 #include <string>
+#include "../include/Server.hpp"
+#include "Command.hpp"
+#include <cstddef>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <stdexcept>
@@ -14,7 +17,9 @@
 #include <fcntl.h>
 #include <vector>
 
-Server::Server(int port, const std::string &password) : _port(port), _server_fd(-1),_password(password)
+
+Server::Server(int port, const std::string &password) : _port(port), _server_fd(-1), _password(password), \
+	_clients() , _pollfds(), _irchandler(password, _clients)
 {}
 Server::~Server() {
 	for (std::size_t i = 0; i < _channels.size(); ++i)
@@ -25,7 +30,7 @@ Server::~Server() {
 		delete _clients[i];
 	}
 	if(_server_fd != -1)
-		close(_server_fd);
+		close(_server_fd); //close listenin sock
 }
 
 void Server::removeClient(int fd)
@@ -49,6 +54,8 @@ void Server::removeClient(int fd)
 			}
 			delete client;
 			_clients.erase(_clients.begin() + i); // remove the pointer form the vector
+			delete _clients[i];
+			_clients.erase(_clients.begin() + i); // remove pointer form the vector
 			return;
 		}
 	}
@@ -58,6 +65,15 @@ static void fatal_error(int server_fd, const std::string &except)
 {
 	close(server_fd);
 	throw std::runtime_error(except);
+}
+Client *Server::getClientByFd(int fd)
+{
+	for(size_t i = 0; i < _clients.size(); i++)
+	{
+		if(_clients[i]->getFd() == fd)
+			return _clients[i];
+	}
+	return NULL;
 }
 
 void Server::sendToClient(Client *client, const std::string &msg)
@@ -106,8 +122,28 @@ Channel *Server::getOrCreateChannel(const std::string &name, bool &created) {
 
 void Server::processMessage(Client *client, const std::string &msg) //just to check the way i retrieve msg parser need to implement it
 {
-	std::cout << "the complete msg from fd " << client->getFd() << ": " << msg << std::endl;
-	sendToClient(client, "server received: " + msg + "\r\n");
+	// std::cout << "the complete msg from fd " << client->getFd() << ": " << msg << std::endl;
+	// sendToClient(client, "server received: " + msg + "\r\n");
+	// if(msg == "PASS secret")
+	// {
+	// 	Command command;
+	// 	command.name = "PASS";
+	// 	command.args.push_back("secret");
+	// 	_irchandler.handle(client, command);
+	// }
+	if(msg == "NICK reda")
+	{
+		Command command;
+		command.name = "NICK";
+		command.args.push_back("reda");
+		_irchandler.handle(client, command);
+		sendToClient(client, "");
+	}
+	
+	//keep this after a finished parsing for POLLOUT 
+	if (!client->getSendBuff().empty())
+        enableClientWrite(client);
+	// std::cout << "Received: " << msg << std::endl;
 }
 
 void Server::setUpSocket() {
@@ -145,9 +181,90 @@ void Server::setUpSocket() {
 	std::cout << "Server Socket created and boud to port " << _port << std::endl;
 }
 
-void Server::run() {
-	char buffer[4096];
+void Server::handleNewConn()
+{
+	int client_fd = accept(_server_fd, NULL, NULL); //create another fd for the clients while server fd stays alive
+	if(client_fd == -1)
+		return;
+	if(fcntl(client_fd, F_SETFL, O_NONBLOCK) == -1) { //make the server client NONEBLOKING, later we will have recv(client_fd) and we want it none blocking
+		close(client_fd);
+		return;
+	}
+	struct pollfd client_poll_fd; //to tell poll to aslo watch for this new client
+	client_poll_fd.fd = client_fd;
+	client_poll_fd.events = POLLIN; // POLLIN = tell me when this socket is ready for me to read
+	client_poll_fd.revents = 0;
+	_pollfds.push_back(client_poll_fd); // add the client to our vector
+	Client *client = new Client(client_fd); //free later
+	_clients.push_back(client);
+	std::cout << "New client connected fd " << client_fd << std::endl;
+}
 
+bool Server::handleClientRead(size_t index)
+{
+	char buffer[4096];
+	int client_fd = _pollfds[index].fd;
+	int b_r = recv(client_fd, buffer, sizeof(buffer), 0); // give me data the client sent (man recv)
+	if (b_r <= 0) { // 0 means the client disconnected clean, -1 error
+		close(client_fd);
+		removeClient(client_fd);
+		_pollfds.erase(_pollfds.begin() + index);
+		std::cout << "client disconnected fd " << client_fd << std::endl;
+		return false;
+	}
+	Client *client = getClientByFd(client_fd);
+	if (client == NULL)
+		return true;
+	client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
+
+	//!!! for testing only parser need to implement this
+	// temporary line extraction
+	std::string &client_buffer = client->getBuff();
+	size_t pos = client_buffer.find("\r\n");
+	while(pos != std::string::npos)
+	{
+		std::string msg = client_buffer.substr(0, pos);
+		processMessage(client, msg); // eventually we will need to store this so it become the connection point to the server
+		client_buffer.erase(0, pos + 2); // remove it after process 
+		pos = client_buffer.find("\r\n"); //get next pos
+	}
+	return true;
+}
+
+void Server::enableClientWrite(Client *client)
+{
+    size_t i = 0;
+
+    while (i < _pollfds.size())
+    {
+        if (_pollfds[i].fd == client->getFd())
+        {
+            _pollfds[i].events |= POLLOUT;
+            return;
+        }
+
+        i++;
+    }
+}
+
+void Server::handleClientwrite(size_t index)
+{
+	Client *client = getClientByFd(_pollfds[index].fd);
+	if (client == NULL)
+		return;
+	std::string &send_buff = client->getSendBuff();
+	if(!send_buff.empty())
+	{
+		int b_s = send(client->getFd(), send_buff.c_str(), send_buff.size(), 0); ///send as much of the buffered data as possible
+		if(b_s > 0)
+			send_buff.erase(0, b_s); // only remove byte that were sent and keep the remaining
+	}
+	if(send_buff.empty())
+		_pollfds[index].events &= ~POLLOUT; // nothing left to send , stop asking poll() about POLLOUT
+}
+
+void Server::run()
+{
 	while (true)
 	{
 		int ret = poll(&_pollfds[0], _pollfds.size(), -1); //index 0 is the server socket, -1 means "wait until something hapens"
@@ -160,94 +277,29 @@ void Server::run() {
 				i++;
 				continue;
 			}
-			if(_pollfds[i].revents & POLLIN) { // bitmask check if POLLIN flaged revents
-			
-				if(_pollfds[i].fd == _server_fd) { // a new client trying to connect
-					int client_fd = accept(_server_fd, NULL, NULL); //create another fd for the clients while server fd stays alive
-					if(client_fd == -1) {
-						i++;
-						continue; //accept failed move to next fd
-					}
-					if(fcntl(client_fd, F_SETFL, O_NONBLOCK) == -1) { //make the server client NONEBLOKING, later we will have recv(client_fd) and we want it none blocking
-						close(client_fd);
-						i++;
-						continue;
-					}
-					struct pollfd client_poll_fd; //to tell poll to aslo watch for this new client
-					client_poll_fd.fd = client_fd;
-					client_poll_fd.events = POLLIN; // POLLIN = tell me when this socket is ready for me to read
-					client_poll_fd.revents = 0;
-
-					_pollfds.push_back(client_poll_fd); // add the client to our vector
-					Client *client = new Client(client_fd); //free later
-					_clients.push_back(client);
-					std::cout << "New client connected fd " << client_fd << std::endl;
-				}
-				else { // dealing with an existing client aka not the server fd
-					int client_fd = _pollfds[i].fd;
-					int b_r = recv(client_fd, buffer, sizeof(buffer) - 1, 0); // give me data the client sent (man recv)
-					if (b_r <= 0) { // 0 means the client disconnected clean, -1 error
-						close(client_fd);
-						removeClient(client_fd);
-						_pollfds.erase(_pollfds.begin() + i);
-						std::cout << "client disconnected fd " << client_fd << std::endl;
-						continue;
-					}
-					else if (b_r > 0)
-					{
-						/**
-						* Shadow is inserting in here
-						**/
-						Client *client = getClientByFd(client_fd);
-						client->getBuff().append(buffer, b_r); // keep appending data to buffer in case of interrupted msgs co^mma^nd
-						Message	msg(client);
-
-						while (true) {
-							try {
-								if (!msg.parseNextMessage())
-									break;
-
-								if (msg.getType() != UNKNOWN)
-									msg.validateArgs();
-								Dispatcher dispatcher(*this, *client, NULL, msg);
-								dispatcher.dispatch();
-								
-							} catch (MessageException& e) {
-								std::cerr << "IRC_RESPONSE: " << e.what();
-								sendToClient(client, e.what());
-							} catch (std::runtime_error& e) {
-								std::cerr << "Runtime Exception: " << e.what() << std::endl;
-							} catch (...) {
-								std::cerr << "Unknown Exception" << std::endl;
-							}
-						}
-						/**
-						* Shadow in only inserting on top of this
-						**/
-					}
+			if(_pollfds[i].revents != _server_fd && (_pollfds[i].revents & (POLLHUP | POLLERR | POLLNVAL))) { // bitmask check if POLLIN flaged revents
+				int client_fd = _pollfds[i].fd;
+				close(client_fd);
+				removeClient(client_fd);
+				_pollfds.erase(_pollfds.begin() + i);
+				std::cout << "Client error or disconnected fd " << client_fd << std::endl;
+				continue;		
 			}
-			}
-			if(_pollfds[i].revents & POLLOUT)
+			if(_pollfds[i].revents & POLLIN)
 			{
-				Client *client = getClientByFd(_pollfds[i].fd);
-				if(client != NULL)
-				{
-					std::string &send_buff = client->getSendBuff();
-					if(!send_buff.empty())
-					{
-						int b_s = send(client->getFd(), send_buff.c_str(), send_buff.size(), 0); ///man send() im sick of commenting
-						if(b_s > 0)
-							send_buff.erase(0, b_s);
-					}
-					if(send_buff.empty())
-						_pollfds[i].events &= ~POLLOUT; // tell the os to stop POLL() to notify us about writing 
-				}
+				if(_pollfds[i].fd == _server_fd)
+					handleNewConn();
+				else 
+					if(!handleClientRead(i))
+						continue;
+			if(i < _pollfds.size() && (_pollfds[i].revents & POLLOUT))
+				handleClientwrite(i);
+			i++;
 			}
-				i++;
-
-		}
+		}	
 	}
 }
+
 
 
 void Server::start() {
