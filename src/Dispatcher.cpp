@@ -1,5 +1,6 @@
 #include "Dispatcher.hpp"
 #include "Channel.hpp"
+#include "Client.hpp"
 #include "Message.hpp"
 #include "MessageException.hpp"
 #include "Server.hpp"
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <map>
 #include <sstream>
+#include <vector>
 
 namespace {
 
@@ -429,6 +431,46 @@ void Dispatcher::handlePing() {
 	_server.sendToClient(&_client, ":ft_irc PONG ft_irc :" + args[0] + "\r\n");
 }
 
+double Dispatcher::calculate(const std::string &input)
+{
+    std::istringstream iss(input);
+    double a;
+    double b;
+    char op;
+    char extra;
+
+    if (!(iss >> a >> op >> b) || (iss >> extra))
+        throw std::runtime_error("Invalid expression");
+
+    if (op == '+')
+        return a + b;
+    if (op == '-')
+        return a - b;
+    if (op == '*')
+        return a * b;
+    if (op == '/')
+    {
+        if (b == 0)
+            throw std::runtime_error("Division by zero");
+        return a / b;
+    }
+
+    throw std::runtime_error("Unknown operator");
+}
+void Dispatcher::handleBot() {
+	const std::vector<std::string> args = _message.getArgs();
+	if(args.empty())
+		return;
+	std::string result;
+	try {
+		std::ostringstream out;
+		out << calculate(args[0]);
+		result = out.str();
+	} catch (...) {
+		result = "error";
+	}
+	_server.sendToClient(&_client, "calculator responded to " + nickOf(_client) + " your result : " + result + "\r\n");
+}
 void Dispatcher::dispatch() {
 	typedef std::pair<Command_t, Handler> Entry;
 	static const Entry entries[] = {
@@ -437,7 +479,8 @@ void Dispatcher::dispatch() {
 		Entry(PRIVMSG, &Dispatcher::handlePrivmsg), Entry(KICK, &Dispatcher::handleKick),
 		Entry(INVITE, &Dispatcher::handleInvite), Entry(TOPIC, &Dispatcher::handleTopic),
 		Entry(MODE, &Dispatcher::handleMode), Entry(CAP, &Dispatcher::handleCap),
-		Entry(PING, &Dispatcher::handlePing), Entry(UNKNOWN, &Dispatcher::handleUnknown)
+		Entry(PING, &Dispatcher::handlePing), Entry(UNKNOWN, &Dispatcher::handleUnknown),
+		Entry(BOT, &Dispatcher::handleBot)
 	};
 	static const HandlerMap handlers(entries, entries + sizeof(entries) / sizeof(entries[0]));
 	HandlerMap::const_iterator it = handlers.find(_message.getType());

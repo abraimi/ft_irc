@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "Client.hpp"
 #include "Dispatcher.hpp"
 #include "Message.hpp"
 #include "MessageException.hpp"
@@ -80,6 +81,7 @@ void Server::sendToClient(Client *client, const std::string &msg) {
 	client->getSendBuff().append(msg);
 	enableClientWrite(client);
 }
+
 
 void Server::processMessage(Client *client, const std::string &line) {
 	Message message(client);
@@ -248,7 +250,7 @@ void Server::run() {
 }
 
 void Server::start() {
-	signal(SIGPIPE, SIG_IGN);
+	signal(SIGPIPE, SIG_IGN); //SIGPIPE can terminate your entire server process by the OS
 	setUpSocket();
 	run();
 }

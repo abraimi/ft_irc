@@ -21,7 +21,8 @@ enum Command_t {
 	TOPIC, // 7
 	MODE, // 8
 	CAP,  // minimal client capability negotiation compatibility
-	PING  // server liveness probe
+	PING,  // server liveness probe
+	BOT
 };
 
 

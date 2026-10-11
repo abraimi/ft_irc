@@ -3,6 +3,7 @@
 
 #include "Message.hpp"
 #include <map>
+#include <string>
 class Server;
 class Client;
 class Message;
@@ -32,6 +33,9 @@ class Dispatcher {
 		void	handleCap();
 		void	handlePing();
 		void	handleUnknown();
+		void	handleBot();
+		double	calculate(const std::string &input);
+
 
 	public:
 		Dispatcher(Server& server, Client& client, Message& msg);
