@@ -1,3 +1,10 @@
+#include "Server.hpp"
+#include "Channel.hpp"
+#include "Dispatcher.hpp"
+#include "Message.hpp"
+#include "MessageException.hpp"
+#include "Utils.hpp"
+#include <string>
 #include "../include/Server.hpp"
 #include "Command.hpp"
 #include <cstddef>
@@ -8,12 +15,15 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <vector>
 
 
 Server::Server(int port, const std::string &password) : _port(port), _server_fd(-1), _password(password), \
 	_clients() , _pollfds(), _irchandler(password, _clients)
 {}
 Server::~Server() {
+	for (std::size_t i = 0; i < _channels.size(); ++i)
+		delete _channels[i];
 	for(size_t i = 0; i < _clients.size(); i++)
 	{
 		close(_clients[i]->getFd());
@@ -29,6 +39,21 @@ void Server::removeClient(int fd)
 	{
 		if(_clients[i]->getFd() == fd)
 		{
+			Client *client = _clients[i];
+			std::size_t channelIndex = 0;
+			while (channelIndex < _channels.size()) {
+				Channel *channel = _channels[channelIndex];
+				channel->removeMember(client);
+				channel->revokeInvite(client);
+				if (channel->getMemberCount() == 0) {
+					delete channel;
+					_channels.erase(_channels.begin() + channelIndex);
+					continue;
+				}
+				++channelIndex;
+			}
+			delete client;
+			_clients.erase(_clients.begin() + i); // remove the pointer form the vector
 			delete _clients[i];
 			_clients.erase(_clients.begin() + i); // remove pointer form the vector
 			return;
@@ -62,6 +87,37 @@ void Server::sendToClient(Client *client, const std::string &msg)
 			return; 
 		}
 	}
+}
+Client *Server::getClientByFd(int fd)
+{
+	for(size_t i = 0; i < _clients.size(); i++)
+	{
+		if(_clients[i]->getFd() == fd)
+			return _clients[i];
+	}
+	return NULL;
+}
+
+const std::vector<Client *>& Server::getClients() const
+{
+	return _clients;
+}
+
+Channel *Server::getChannelByName(const std::string &name) const {
+	for (std::size_t i = 0; i < _channels.size(); ++i)
+		if (Utils::equalsIgnoreCase(_channels[i]->getName(), name))
+			return _channels[i];
+	return NULL;
+}
+
+Channel *Server::getOrCreateChannel(const std::string &name, bool &created) {
+	Channel *channel = getChannelByName(name);
+	created = channel == NULL;
+	if (channel)
+		return channel;
+	channel = new Channel(name);
+	_channels.push_back(channel);
+	return channel;
 }
 
 void Server::processMessage(Client *client, const std::string &msg) //just to check the way i retrieve msg parser need to implement it
@@ -246,9 +302,7 @@ void Server::run()
 
 
 
-
-void Server::start()
-{
+void Server::start() {
 	setUpSocket();
 	run();
 }
