@@ -1,14 +1,12 @@
 #pragma once
 
-#include "../include/Client.hpp"
-#include "../include/IRCHandler.hpp"
+#include "Client.hpp"
+#include "Channel.hpp"
 
 #include <cstddef>
 #include <string>
 #include <vector>
 #include <poll.h>
-
-class Channel;
 
 class Server {
 	private:
@@ -19,30 +17,24 @@ class Server {
 		std::string 				_password;
 
 		std::vector<Client *>		_clients; //connected clients
+		std::vector<Channel *>		_channels;
 		std::vector<struct pollfd> 	_pollfds; //fds watched by poll()
-		IRCHandler 					_irchandler;
 
-		void 	removeClient(int fd); 
-		Client	*getClientByFd(int fd);
-		void 	processMessage(Client *client, const std::string &msg); // temporary parser connection point
-		void 	sendToClient(Client *client, const std::string &msg); // add data to client buff
-
-		//todo
 		void handleNewConn(); //accept new client 
 		bool handleClientRead(size_t index); // receive client data
-		void handleClientwrite(size_t index); // send buff data
+		bool handleClientWrite(size_t index); // false means fd removed
 		void enableClientWrite(Client *client);
 	public:
 		Server(int port, const std::string &password);
 		~Server();
 		
+		const std::vector<Client *>& getClients() const;
 		Client	*getClientByFd(int fd);
 		void 	removeClient(int fd);
-		const std::vector<Client *>& getClients() const;
 		Channel	*getChannelByName(const std::string &name) const;
 		Channel	*getOrCreateChannel(const std::string &name, bool &created);
 		void 	processMessage(Client *client, const std::string &msg);
-		void 	sendToClient(Client *client, const std::string &msg); //!enable POLLOUT
+		void 	sendToClient(Client *client, const std::string &msg);
 
 		void start();
 		void setUpSocket(); //create/bind/listen on server side

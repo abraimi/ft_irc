@@ -16,15 +16,15 @@ make re
 ## Start the server
 
 ```bash
-./ft_irc <port> <password>
+./ircserv <port> <password>
 # example:
-./ft_irc 6667 secret
+./ircserv 6667 secret
 ```
 
 ## Connect with netcat
 
 ```bash
-nc 127.0.0.1 6667
+nc -C 127.0.0.1 6667
 ```
 
 Then type IRC commands:
@@ -39,8 +39,6 @@ TOPIC #42 :my topic
 MODE #42 +i
 INVITE bob #42
 KICK #42 bob :bye
-PART #42 :goodnight
-QUIT :bye
 ```
 
 ## Use the python test client

@@ -1,4 +1,5 @@
 #include "Utils.hpp"
+#include <cctype>
 
 std::string Utils::uppercase(const std::string& value) {
 	std::string result = value;

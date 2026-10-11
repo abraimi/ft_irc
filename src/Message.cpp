@@ -1,290 +1,183 @@
 #include "Message.hpp"
-#include "Client.hpp"
 #include "MessageException.hpp"
 #include "Utils.hpp"
+#include <cctype>
 #include <map>
-#include <string>
+#include <utility>
 
-Message::Message(Client* client): client(client), authority(REGULAR), cmdType(UNKNOWN), commandName(), args(), valid(false) {}
+Message::Message(Client *client)
+	: client(client), cmdType(UNKNOWN), commandName(), args(), valid(false) {}
 
 Message::~Message() {}
 
-bool	Message::parseNextMessage() {
-	if (!this->client) {
-		return false;
-	}
+static bool isSeparator(char c) { return c == ' ' || c == '\t'; }
 
-	std::string	&buffer = this->client->getBuff();
-	std::string::size_type	end = buffer.find("\r\n");
-
-	if (end == std::string::npos) {
-		return false;
-	}
-
-	std::string	line = buffer.substr(0, end);
-	buffer.erase(0, end + 2);
-	this->parseMessage(line);
-	return true;
-}
-
-static bool	isSeparator(char c) {
-	return (c == ' ' || c == '\t');
-}
-
-void	skipSpaces(const std::string& line, std::string::iterator& it) {
-	for (; it != line.end(); it++) {
-		if (!isSeparator(*it)) {
-			break ;
-		}
-	}
-}
-
-
-std::string	Message::sanitize(const std::string &line)
-{
-	std::string	toClean = line;
-	std::size_t	lastOf = toClean.find_last_not_of("\r\n");
-
-	if (lastOf == std::string::npos) {
-		toClean.clear();
-	} else {
-		toClean.erase(lastOf + 1);
-	}
-
-	return (toClean);
-}
-
-void	Message::tokenize(std::string& line, std::string::iterator& it) {
-	std::string::iterator	textEnd, textBegin;
-
-	for (; 0x69420F; ) {
-		skipSpaces(line, it);
-		if (it == line.end()) {
-			break ;
-		}
-		if (*it == ':') {
-			textEnd = line.end();
-			for (; it + 1 != textEnd && isSeparator(*(textEnd - 1)); textEnd--) ;
-			this->tokens.push_back(std::string(it + 1, textEnd));
-			break ;
-		}
-		textBegin = it;
-		for (; it != line.end() && !isSeparator(*it); it++) ;
-
-		this->tokens.push_back(std::string(textBegin, it));
-	}
-
-}
-
-void	Message::parseMessage(const std::string &line) {
-	std::string				sanitized = this->sanitize(line);
-	std::string::iterator	it = sanitized.begin();
-
-	this->tokens.clear();
-	this->args.clear();
-	this->authority = REGULAR;
-	this->cmdType = UNKNOWN;
-	this->commandName.clear();
-	this->valid = false;
-
-	skipSpaces(sanitized, it);
-	if (it == sanitized.end()) {
-		throw MessageException(ERR_NOTEXTTOSEND, this->client);
-	}
-	// ! Like this example: :nick!user@host PRIVMSG ...
-	//! Which is skiped to leave PRIVMSG ... only
-	if (*it == ':') {
-		for (; it != sanitized.end() && !isSeparator(*it); it++) ;
-		skipSpaces(sanitized, it);
-		if (it == sanitized.end()) {
-			throw MessageException(ERR_NOTEXTTOSEND, this->client);
-		}
-	}
-
-	tokenize(sanitized, it);
-	if (this->tokens.empty()) {
-		throw MessageException(ERR_NOTEXTTOSEND, this->client);
-	}
-	for (std::size_t idx = 0; idx < this->tokens.size(); idx++) {
-		if (!idx) {
-			this->commandName = this->tokens.at(idx);
-			this->tokens.at(idx) = Utils::uppercase(this->tokens.at(idx));
-			this->cmdType = commandType(this->tokens.at(idx));
-			continue ;
-		}
-		this->args.push_back(this->tokens.at(idx));
-	}
-	this->valid = true;
-}
-
-Command_t	Message::commandType(const std::string& command) {
-	typedef std::pair<std::string, Command_t>	Entry;
-	typedef std::map<std::string, Command_t> 	EntryMap;
-    static const Entry entries[] = {
-        Entry("USER", USER), Entry("PASS", PASS),
-        Entry("NICK", NICK), Entry("JOIN", JOIN),
-		Entry("PRIVMSG", PRIVMSG), Entry("KICK", KICK),
-		Entry("INVITE", INVITE), Entry("TOPIC", TOPIC), 
-		Entry("MODE", MODE)
-    };
-	static const EntryMap		types(entries, entries + (sizeof(entries) / sizeof(entries[0])));
-	EntryMap::const_iterator	it = types.find(command);
-
-	if (it == types.end()) {
-		return UNKNOWN;
-	}
-	return it->second;
-}
-
-static bool	validNickname(const std::string& nick) {
-	static const std::string	special = "-[]\\`^{}_";
-
-	if (nick.empty() || nick.size() > 9) {
-		return false;
-	}
-	for (std::string::const_iterator it = nick.begin(); it != nick.end(); it++) {
-		unsigned char c = static_cast<unsigned char>(*it);
-
-		if (!std::isalpha(c) && !std::isdigit(c)
-			&& special.find(static_cast<char>(c)) == std::string::npos) {
-			return false;
-		}
-		if (it == nick.begin() && std::isdigit(c)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-static bool	validChannel(const std::string& name) {
-	if (name.empty() || name.size() > 200
-		|| (name[0] != '#' && name[0] != '&')) {
-		return false;
-	}
-	for (std::string::const_iterator it = name.begin(); it != name.end(); it++) {
-		if (*it == ' ' || *it == '\t' || *it == ',' || *it == '\a'
-			|| *it == '\r' || *it == '\n') {
-			return false;
-		}
-	}
-	return true;
-}
-void	Message::validateArgs() {
-	typedef std::pair<std::size_t, std::size_t>	argCount;
-
-	static const argCount	limits[] = {
-		argCount(1, 1),	// PASS
-		argCount(4, 4),	// USER
-		argCount(1, 1),	// NICK
-		argCount(1, 2),	// JOIN
-		argCount(2, 2),	// PRIVMSG
-		argCount(2, 3),	// KICK
-		argCount(2, 2),	// INVITE
-		argCount(1, 2),	// TOPIC
-		argCount(1, 0)	// MODE: no upper bound
-	};
-
-	if (this->cmdType == UNKNOWN)
+void Message::parseMessage(const std::string &line) {
+	args.clear();
+	cmdType = UNKNOWN;
+	commandName.clear();
+	valid = false;
+	std::string clean = line;
+	while (!clean.empty() && (clean[clean.size() - 1] == '\r' || clean[clean.size() - 1] == '\n'))
+		clean.erase(clean.size() - 1);
+	std::string::size_type pos = 0;
+	while (pos < clean.size() && isSeparator(clean[pos]))
+		++pos;
+	if (pos == clean.size())
 		return;
-	const argCount& count = limits[this->cmdType];
-
-	if (this->args.size() < count.first || (count.second && this->args.size() > count.second)) {
-		throw	MessageException(ERR_NEEDMOREPARAMS, client);
+	if (clean[pos] == ':') {
+		std::string::size_type prefixEnd = clean.find_first_of(" \t", pos);
+		if (prefixEnd == std::string::npos)
+			return;
+		pos = prefixEnd;
+		while (pos < clean.size() && isSeparator(clean[pos]))
+			++pos;
 	}
-
-	if (this->cmdType == PASS && this->args[0].empty()) {
-		throw MessageException(ERR_NEEDMOREPARAMS, client);
-	}
-
-	if (this->cmdType == NICK && !validNickname(this->args[0])) {
-		throw MessageException(ERR_ERRONEUSNICKNAME, client);
-	}
-	if (this->cmdType == JOIN) {
-		if (!validChannel(this->args[0])
-			|| (this->args.size() > 1
-				&& this->args[1].find(',') != std::string::npos)) {
-			throw MessageException(ERR_BADCHANMASK, client);
+	std::string::size_type commandEnd = clean.find_first_of(" \t", pos);
+	if (commandEnd == std::string::npos)
+		commandName = clean.substr(pos);
+	else
+		commandName = clean.substr(pos, commandEnd - pos);
+	if (commandName.empty())
+		return;
+	commandName = Utils::uppercase(commandName);
+	cmdType = commandType(commandName);
+	if (commandEnd != std::string::npos)
+		pos = commandEnd;
+	else
+		pos = clean.size();
+	while (pos < clean.size()) {
+		while (pos < clean.size() && isSeparator(clean[pos]))
+			++pos;
+		if (pos == clean.size())
+			break;
+		if (clean[pos] == ':') {
+			args.push_back(clean.substr(pos + 1));
+			break;
 		}
+		std::string::size_type end = clean.find_first_of(" \t", pos);
+		if (end == std::string::npos) {
+			args.push_back(clean.substr(pos));
+			break;
+		}
+		args.push_back(clean.substr(pos, end - pos));
+		pos = end;
 	}
+	valid = true;
+}
 
-	if (this->cmdType == PRIVMSG) {
-		if (this->args.size() && this->args.at(0).empty()) {
-			throw MessageException(ERR_NORECIPIENT, client);
-		}
-		if (this->args.size() && this->args.at(0).find(',') != std::string::npos) {
-			throw MessageException(ERR_TOOMANYTARGETS, client, this->args.at(0));
-		}
-		if (this->args.size() > 1 && this->args.at(1).empty()) {
+Command_t Message::commandType(const std::string &command) {
+	typedef std::pair<std::string, Command_t> Entry;
+	typedef std::map<std::string, Command_t> EntryMap;
+	static const Entry entries[] = {
+		Entry("PASS", PASS), Entry("USER", USER), Entry("NICK", NICK),
+		Entry("JOIN", JOIN), Entry("PRIVMSG", PRIVMSG), Entry("KICK", KICK),
+		Entry("INVITE", INVITE), Entry("TOPIC", TOPIC), Entry("MODE", MODE),
+		Entry("CAP", CAP), Entry("PING", PING)
+	};
+	static const EntryMap types(entries, entries + sizeof(entries) / sizeof(entries[0]));
+	EntryMap::const_iterator it = types.find(command);
+	return it == types.end() ? UNKNOWN : it->second;
+}
+
+static bool validNickname(const std::string &nick) {
+	static const std::string firstSpecial = "[]\\`_^{|}";
+	static const std::string otherSpecial = "-[]\\`_^{|}";
+	if (nick.empty() || nick.size() > 9
+		|| (!std::isalpha(static_cast<unsigned char>(nick[0]))
+			&& firstSpecial.find(nick[0]) == std::string::npos))
+		return false;
+	for (std::string::size_type i = 1; i < nick.size(); ++i) {
+		unsigned char c = static_cast<unsigned char>(nick[i]);
+		if (!std::isalpha(c) && !std::isdigit(c)
+			&& otherSpecial.find(static_cast<char>(c)) == std::string::npos)
+			return false;
+	}
+	return true;
+}
+
+static bool validChannel(const std::string &name) {
+	if (name.size() < 2 || name.size() > 200 || (name[0] != '#' && name[0] != '&'))
+		return false;
+	for (std::string::size_type i = 0; i < name.size(); ++i)
+		if (name[i] == ' ' || name[i] == '\t' || name[i] == ',' || name[i] == '\a'
+			|| name[i] == '\r' || name[i] == '\n')
+			return false;
+	return true;
+}
+
+void Message::validateArgs() {
+	if (!valid || cmdType == UNKNOWN)
+		return;
+	if (cmdType == NICK && args.empty())
+		throw MessageException(ERR_NONICKNAMEGIVEN, client);
+	if (cmdType == PRIVMSG && args.empty())
+		throw MessageException(ERR_NORECIPIENT, client, "PRIVMSG");
+	if (cmdType == PRIVMSG && args.size() == 1)
+		throw MessageException(ERR_NOTEXTTOSEND, client);
+	std::size_t minimum = 0;
+	std::size_t maximum = 0;
+	switch (cmdType) {
+		case PASS: minimum = 1; maximum = 1; break;
+		case USER: minimum = 4; maximum = 4; break;
+		case NICK: minimum = 1; maximum = 1; break;
+		case JOIN: minimum = 1; maximum = 2; break;
+		case PRIVMSG: minimum = 2; maximum = 2; break;
+		case KICK: minimum = 2; maximum = 3; break;
+		case INVITE: minimum = 2; maximum = 2; break;
+		case TOPIC: minimum = 1; maximum = 2; break;
+		case MODE: minimum = 1; maximum = 0; break;
+		default: return;
+	}
+	if (args.size() < minimum || (maximum && args.size() > maximum))
+		throw MessageException(ERR_NEEDMOREPARAMS, client, commandName);
+	if (cmdType == NICK && !validNickname(args[0]))
+		throw MessageException(args[0].empty() ? ERR_NONICKNAMEGIVEN : ERR_ERRONEUSNICKNAME, client);
+	if ((cmdType == JOIN || cmdType == KICK || cmdType == TOPIC)
+		&& !validChannel(args[0]))
+		throw MessageException(ERR_BADCHANMASK, client, args[0]);
+	if (cmdType == INVITE && !validNickname(args[0]))
+		throw MessageException(ERR_ERRONEUSNICKNAME, client, args[0]);
+	if (cmdType == INVITE && !validChannel(args[1]))
+		throw MessageException(ERR_BADCHANMASK, client, args[1]);
+	if (cmdType == PRIVMSG) {
+		if (args[0].empty())
+			throw MessageException(ERR_NORECIPIENT, client, "PRIVMSG");
+		if (args[0].find(',') != std::string::npos)
+			throw MessageException(ERR_TOOMANYTARGETS, client, args[0]);
+		if (args[1].empty())
 			throw MessageException(ERR_NOTEXTTOSEND, client);
-		}
 	}
-	/*
-		Channel specific Checks
-	*/
-	if (this->cmdType == KICK || this->cmdType == TOPIC || this->cmdType == MODE) {
-		if (!validChannel(this->args[0])) {
-			throw MessageException(ERR_BADCHANMASK, client);
-		}
-	}
-	if (this->cmdType == MODE && this->args.size() > 1) {
-		const std::string& mode = this->args[1];
-		if (mode.empty() || (mode[0] != '+' && mode[0] != '-')) {
-			throw MessageException(ERR_INVALIDMODEPARAM, client);
-		}
-		for (std::string::size_type i = 1; i < mode.size(); ++i) {
-			if (mode[i] != 'i' && mode[i] != 't' && mode[i] != 'k'
-				&& mode[i] != 'o' && mode[i] != 'l') {
-				throw MessageException(ERR_UNKNOWNMODE, client);
+	if (cmdType == MODE && args.size() > 1) {
+		bool hasMode = false;
+		bool hasFlag = false;
+		std::size_t required = 0;
+		char sign = 0;
+		for (std::string::size_type i = 0; i < args[1].size(); ++i) {
+			char c = args[1][i];
+			if (c == '+' || c == '-') {
+				if (i + 1 == args[1].size()
+					|| (i > 0 && (args[1][i - 1] == '+' || args[1][i - 1] == '-')))
+					throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
+				hasMode = true;
+				sign = c;
+			} else if (!hasMode || sign == 0
+				|| (c != 'i' && c != 't' && c != 'k' && c != 'o' && c != 'l')) {
+				throw MessageException(ERR_UNKNOWNMODE, client, std::string(1, c));
+			} else {
+				hasFlag = true;
+				if (c == 'o' || c == 'k' || (c == 'l' && sign == '+'))
+					++required;
 			}
 		}
-		if (mode.size() != 2) {
-			throw MessageException(ERR_INVALIDMODEPARAM, client);
-		}
-
-		bool needsParameter = mode[1] == 'k' || mode[1] == 'o'
-			|| (mode[1] == 'l' && mode[0] == '+');
-		if (needsParameter) {
-			if (this->args.size() < 3) {
-				throw MessageException(ERR_NEEDMOREPARAMS, client);
-			}
-			if (this->args.size() > 3 || this->args[2].empty()) {
-				throw MessageException(ERR_INVALIDMODEPARAM, client);
-			}
-		}
-		else if (this->args.size() != 2) {
-			throw MessageException(ERR_INVALIDMODEPARAM, client);
-		}
-	}
-	if (this->cmdType == INVITE) {
-		if (this->args.size() && !validNickname(this->args[0])) {
-			throw MessageException(ERR_ERRONEUSNICKNAME, client);
-		}
-		if (this->args.size() > 1 && !validChannel(this->args[1])) {
-			throw MessageException(ERR_BADCHANMASK, client);
-		}
+		if (!hasMode || !hasFlag)
+			throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
+		if (args.size() != required + 2)
+			throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
 	}
 }
 
-/*
-	Getters
-*/
-
-Authority_t	Message::getAuthority() const {
-	return this->authority;
-}
-
-Command_t	Message::getType() const {
-	return this->cmdType;
-}
-
-const std::string	&Message::getCommandName() const {
-	return this->commandName;
-}
-
-std::vector<std::string>	Message::getArgs() const {
-	return this->args;
-}
-
-bool	Message::getValid() const {
-	return this->valid;
-}
+Command_t Message::getType() const { return cmdType; }
+const std::string &Message::getCommandName() const { return commandName; }
+const std::vector<std::string> &Message::getArgs() const { return args; }
+bool Message::getValid() const { return valid; }

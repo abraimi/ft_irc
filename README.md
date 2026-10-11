@@ -1,101 +1,68 @@
-Our goal is to create an IRC ( internet relay chat ) server on port 6667 and require a password when clients authenticate.
+*This project has been created as part of the 42 curriculum by abraimi, goldinooo.*
 
-./irc 6667 password
+# Description
 
-the sequence will be
+`ircserv` is a small IRC server written in C++98. It accepts plain TCP connections,
+authenticates clients with a configured password, registers nicknames and usernames,
+and supports channel and private messaging. Channel operators can manage membership,
+topics, invitations, and the required channel modes. One `poll()` loop handles the
+listening socket and all clients; client sockets are non-blocking.
 
-socket() -> setsockopt() -> bind() -> listen() -> accept()
+# Instructions
 
-socket() = create a socket AKA give me a network communication endpoint , might returns someting like fd = 3. why ?? because a socket is a file descriptor and that fd will be the endpoint.
+Build with the required compiler warnings:
 
-bind() = will attach this socket to this address/port : socket -> bind -> 127.0.0.1:6667.
-
-listen() = tells the os that this socket is a server socket, wait for incoming connections :
-
-Internet
-│
-▼
-┌─────────┐
-│ ircserv │
-│ :6667   │
-└─────────┘
-▲
-│
-waiting...
-
-accept() = accepts that connection and gives you another fd for example :
-
-listenting socket -> accept() -> client socket
-
-fd 3 will be listening socket while fd 4 -> reda, fd 5 -> shadow, fd 6 -> bob
-
-in nutshell the listening socket is used to accept new clients while client sockets are used to communicate with clients fd 3.
-
-PS: for multiple clients we cant simply do :
-
-accept();
-
-recv(reda);
-
-recv(shadow);
-
-recv(bob);
-
-because reda might stop sending data and the server will get stuck waiting for more data from data meanwhile shadow and bob's data is hanged waiting for servel to recv.
-
-!!! man recv
-
-poll() = works as a security guard watching those senders
-
-instead of asking is reda sending something ? is shadow sending something ? etc...
-
-poll asks the os wich file descriptor is ready if reda and shadow sockets are ready and bob isnt my server will only handle the ready ones.
-
-why it non blocking ? because it doesnt make the whole program wait for one socket
-
-```
-poll()
-                          │
-┌──────────┼──────────┐
-▼                      ▼                        ▼
-server              Reda                  Alice
-ready              ready                    no
-│                      │
-▼                    ▼
-accept()          recv()
+```sh
+make
 ```
 
-this will allow one process to handke many clients without the need of fork() or another process/threads
+Run the server with a port and connection password:
 
-# event loop
-
-what the server should look like
-
-```
-while (server_is_running)
-{
-    poll(...);
-
-    if (server_socket is ready)
-        accept new client;
-
-    if (client_socket is ready)
-        receive data;
-
-    process commands;
-
-    send responses;
-}
+```sh
+./ircserv 6667 mypassword
 ```
 
-!!!PS : tcp doesnt preserve commands it a stream, and as stated in the subject the user might send "co" "mma" "nd" "\n" instead of "command '\'\n" and we must reconstruct it before processing to fix this every client needs a receive buffer packet 1 = com next packet  = and\n there that we can process it as follows "command\n "
+Connect manually using netcat (the `-C` option sends IRC CRLF line endings):
 
+```sh
+nc -C 127.0.0.1 6667
+```
 
-in the subject we have ```nc``` is smthg wtf !! it let you bypass hexChat and manually speack IRC it basically tells the os , let me pretend im an IRC client using the terminal. ```man nc```
+Then enter:
 
-# the big picture
+```text
+PASS mypassword
+NICK reda
+USER reda 0 * :Reda Tahri
+JOIN #test
+PRIVMSG #test :hello everyone
+```
 
+Use `make clean` to remove objects, `make fclean` to remove objects and the executable,
+and `make re` to rebuild from scratch. The parser checks can be run with `make test`.
 
-SERVER   PORT 6667 --> poll() ---> multiple clients ---> each clients has a buffer ---> IRC parser ---> IRC command = if PASS -> client state , if JOIN -> Channel,
+## HexChat
 
-if PRIVMSG -> Broadcast
+Add a network/server for `127.0.0.1/6667`, disable TLS/SSL, and set the server
+password to the value passed to `ircserv`. Choose a nickname and connect. This server
+does not provide TLS.
+
+# Features
+
+- PASS, NICK, USER registration and IRC welcome numerics.
+- JOIN, channel and private PRIVMSG, channel membership and initial channel operator.
+- KICK, INVITE, TOPIC, and channel modes `i`, `t`, `k`, `o`, and `l`.
+- CRLF framing with per-client input buffers, multiple commands per read, and buffered
+  output for partial writes.
+- Minimal CAP and PING handling for common IRC-client connection behavior.
+
+# Resources
+
+- [42 ft_irc subject](en.subject%20(1).pdf)
+- [RFC 1459](https://www.rfc-editor.org/rfc/rfc1459)
+- [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/)
+- `poll(2)`, `socket(2)`, `recv(2)`, and `send(2)` manual pages.
+
+AI assistance was used to review the integration boundary, identify defects, help
+implement and refine parser/server integration, and design protocol test cases. The
+resulting code and behavior must be reviewed and understood by the project authors.

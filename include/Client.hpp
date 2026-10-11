@@ -8,6 +8,7 @@ class Client {
         std::string _buff;
         std::string _nickname;
         std::string _username;
+        std::string _realname;
         std::string _sendBuff;
         bool        _isAuth; 
         bool        _isRegistered; // already connected NICK + USER = regisetered
@@ -25,6 +26,8 @@ class Client {
 
         void setUserName(const std::string &username);
         std::string getUsername() const;
+        void setRealname(const std::string &realname);
+        std::string getRealname() const;
 
         void setisAuth(bool isAuth);
         bool isAuth() const;

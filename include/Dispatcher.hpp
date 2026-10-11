@@ -5,14 +5,12 @@
 #include <map>
 class Server;
 class Client;
-class Channel;
 class Message;
 
 class Dispatcher {
 	private:
 		Server&	_server;
 		Client&	_client;
-		Channel*	_channel;
 		Message&	_message;
 
 		typedef void (Dispatcher::*Handler)();
@@ -27,10 +25,16 @@ class Dispatcher {
 		void	handleUser();
 		void	handleJoin();
 		void	handlePrivmsg();
+		void	handleKick();
+		void	handleInvite();
+		void	handleTopic();
+		void	handleMode();
+		void	handleCap();
+		void	handlePing();
 		void	handleUnknown();
 
 	public:
-		Dispatcher(Server& server, Client& client, Channel* channel, Message& msg);
+		Dispatcher(Server& server, Client& client, Message& msg);
 		~Dispatcher();
 
 		void	dispatch();
