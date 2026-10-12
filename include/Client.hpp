@@ -12,7 +12,11 @@ class Client {
         std::string _sendBuff;
         bool        _isAuth; 
         bool        _isRegistered; // already connected NICK + USER = regisetered
+        bool        _shouldDisconnect;
         std::string _hostname;
+
+        Client(const Client &other);
+        Client &operator=(const Client &other);
 
     public:
         Client(int fd);
@@ -22,12 +26,12 @@ class Client {
         std::string &getBuff();
         
         void setNickname(const std::string &nickname);
-        std::string getNickname() const;
+        const std::string &getNickname() const;
 
         void setUserName(const std::string &username);
-        std::string getUsername() const;
+        const std::string &getUsername() const;
         void setRealname(const std::string &realname);
-        std::string getRealname() const;
+        const std::string &getRealname() const;
 
         void setisAuth(bool isAuth);
         bool isAuth() const;
@@ -35,8 +39,11 @@ class Client {
         void setRegister(bool isRegistered);
         bool isRegistered() const;
 
+        void markForDisconnect();
+        bool shouldDisconnect() const;
+
         void setHostname(const std::string &hostname);
-        std::string getHostname() const;
+        const std::string &getHostname() const;
 
         std::string &getSendBuff();
 };

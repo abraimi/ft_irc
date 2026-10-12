@@ -5,6 +5,9 @@
 #include <map>
 #include <utility>
 
+static const std::size_t MAX_NICKNAME_LENGTH = 9;
+static const std::size_t MAX_CHANNEL_LENGTH = 200;
+
 Message::Message(Client *client)
 	: client(client), cmdType(UNKNOWN), commandName(), args(), valid(false) {}
 
@@ -83,7 +86,7 @@ Command_t Message::commandType(const std::string &command) {
 static bool validNickname(const std::string &nick) {
 	static const std::string firstSpecial = "[]\\`_^{|}";
 	static const std::string otherSpecial = "-[]\\`_^{|}";
-	if (nick.empty() || nick.size() > 9
+	if (nick.empty() || nick.size() > MAX_NICKNAME_LENGTH
 		|| (!std::isalpha(static_cast<unsigned char>(nick[0]))
 			&& firstSpecial.find(nick[0]) == std::string::npos))
 		return false;
@@ -97,13 +100,63 @@ static bool validNickname(const std::string &nick) {
 }
 
 static bool validChannel(const std::string &name) {
-	if (name.size() < 2 || name.size() > 200 || (name[0] != '#' && name[0] != '&'))
+	if (name.size() < 2 || name.size() > MAX_CHANNEL_LENGTH
+		|| (name[0] != '#' && name[0] != '&'))
 		return false;
-	for (std::string::size_type i = 0; i < name.size(); ++i)
-		if (name[i] == ' ' || name[i] == '\t' || name[i] == ',' || name[i] == '\a'
-			|| name[i] == '\r' || name[i] == '\n')
+	for (std::string::size_type i = 0; i < name.size(); ++i) {
+		const unsigned char character = static_cast<unsigned char>(name[i]);
+		if (std::iscntrl(character) || name[i] == ',' || name[i] == ':')
 			return false;
+	}
 	return true;
+}
+
+static bool getArgumentBounds(Command_t command, std::size_t &minimum,
+		std::size_t &maximum) {
+	typedef std::pair<Command_t, std::pair<std::size_t, std::size_t> > Entry;
+	typedef std::map<Command_t, std::pair<std::size_t, std::size_t> > BoundsMap;
+	static const Entry entries[] = {
+		Entry(PASS, std::make_pair(1, 1)), Entry(USER, std::make_pair(4, 4)),
+		Entry(NICK, std::make_pair(1, 1)), Entry(JOIN, std::make_pair(1, 2)),
+		Entry(PRIVMSG, std::make_pair(2, 2)), Entry(KICK, std::make_pair(2, 3)),
+		Entry(INVITE, std::make_pair(2, 2)), Entry(TOPIC, std::make_pair(1, 2)),
+		Entry(MODE, std::make_pair(1, 0))
+	};
+	static const BoundsMap bounds(entries, entries + sizeof(entries) / sizeof(entries[0]));
+	BoundsMap::const_iterator it = bounds.find(command);
+	if (it == bounds.end())
+		return false;
+	minimum = it->second.first;
+	maximum = it->second.second;
+	return true;
+}
+
+static void validateModeArgs(const std::vector<std::string> &args, Client *client) {
+	if (args.size() <= 1)
+		return;
+	bool hasMode = false;
+	bool hasFlag = false;
+	std::size_t required = 0;
+	char sign = 0;
+	for (std::string::size_type i = 0; i < args[1].size(); ++i) {
+		char flag = args[1][i];
+		if (flag == '+' || flag == '-') {
+			if (i + 1 == args[1].size()
+				|| (i > 0 && (args[1][i - 1] == '+' || args[1][i - 1] == '-')))
+				throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
+			hasMode = true;
+			sign = flag;
+			continue;
+		}
+		if (!hasMode || sign == 0
+			|| (flag != 'i' && flag != 't' && flag != 'k' && flag != 'o' && flag != 'l'))
+			throw MessageException(ERR_UNKNOWNMODE, client, std::string(1, flag));
+		hasFlag = true;
+		if (flag == 'o' || flag == 'k' || (flag == 'l' && sign == '+'))
+			++required;
+	}
+	if (!hasMode || !hasFlag || args.size() != required + 2)
+		throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
 }
 
 void Message::validateArgs() {
@@ -117,18 +170,8 @@ void Message::validateArgs() {
 		throw MessageException(ERR_NOTEXTTOSEND, client);
 	std::size_t minimum = 0;
 	std::size_t maximum = 0;
-	switch (cmdType) {
-		case PASS: minimum = 1; maximum = 1; break;
-		case USER: minimum = 4; maximum = 4; break;
-		case NICK: minimum = 1; maximum = 1; break;
-		case JOIN: minimum = 1; maximum = 2; break;
-		case PRIVMSG: minimum = 2; maximum = 2; break;
-		case KICK: minimum = 2; maximum = 3; break;
-		case INVITE: minimum = 2; maximum = 2; break;
-		case TOPIC: minimum = 1; maximum = 2; break;
-		case MODE: minimum = 1; maximum = 0; break;
-		default: return;
-	}
+	if (!getArgumentBounds(cmdType, minimum, maximum))
+		return;
 	if (args.size() < minimum || (maximum && args.size() > maximum))
 		throw MessageException(ERR_NEEDMOREPARAMS, client, commandName);
 	if (cmdType == NICK && !validNickname(args[0]))
@@ -148,33 +191,8 @@ void Message::validateArgs() {
 		if (args[1].empty())
 			throw MessageException(ERR_NOTEXTTOSEND, client);
 	}
-	if (cmdType == MODE && args.size() > 1) {
-		bool hasMode = false;
-		bool hasFlag = false;
-		std::size_t required = 0;
-		char sign = 0;
-		for (std::string::size_type i = 0; i < args[1].size(); ++i) {
-			char c = args[1][i];
-			if (c == '+' || c == '-') {
-				if (i + 1 == args[1].size()
-					|| (i > 0 && (args[1][i - 1] == '+' || args[1][i - 1] == '-')))
-					throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
-				hasMode = true;
-				sign = c;
-			} else if (!hasMode || sign == 0
-				|| (c != 'i' && c != 't' && c != 'k' && c != 'o' && c != 'l')) {
-				throw MessageException(ERR_UNKNOWNMODE, client, std::string(1, c));
-			} else {
-				hasFlag = true;
-				if (c == 'o' || c == 'k' || (c == 'l' && sign == '+'))
-					++required;
-			}
-		}
-		if (!hasMode || !hasFlag)
-			throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
-		if (args.size() != required + 2)
-			throw MessageException(ERR_INVALIDMODEPARAM, client, args[1]);
-	}
+	if (cmdType == MODE)
+		validateModeArgs(args, client);
 }
 
 Command_t Message::getType() const { return cmdType; }

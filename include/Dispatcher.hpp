@@ -7,6 +7,7 @@
 class Server;
 class Client;
 class Message;
+class Channel;
 
 class Dispatcher {
 	private:
@@ -16,10 +17,16 @@ class Dispatcher {
 
 		typedef void (Dispatcher::*Handler)();
 		typedef std::map<Command_t, Handler> HandlerMap;
+		typedef void (Dispatcher::*ModeHandler)(Channel &, bool,
+			const std::string &, std::string &);
+
+		Dispatcher(const Dispatcher &other);
+		Dispatcher &operator=(const Dispatcher &other);
 
 		bool		verifyPassword(const std::string &password) const;
 		void		tryCompleteRegistration();
 		bool		isNicknameInUse(const std::string &nickname) const;
+		Client		*findClientByNickname(const std::string &nickname) const;
 
 		void	handlePass();
 		void	handleNick();
@@ -30,6 +37,19 @@ class Dispatcher {
 		void	handleInvite();
 		void	handleTopic();
 		void	handleMode();
+		void	sendChannelModes(Channel &channel);
+		void	applyChannelModes(Channel &channel,
+			const std::vector<std::string> &args);
+		void	applyInviteOnlyMode(Channel &channel, bool enabled,
+			const std::string &parameter, std::string &parameters);
+		void	applyTopicOnlyMode(Channel &channel, bool enabled,
+			const std::string &parameter, std::string &parameters);
+		void	applyKeyMode(Channel &channel, bool enabled,
+			const std::string &parameter, std::string &parameters);
+		void	applyLimitMode(Channel &channel, bool enabled,
+			const std::string &parameter, std::string &parameters);
+		void	applyOperatorMode(Channel &channel, bool enabled,
+			const std::string &parameter, std::string &parameters);
 		void	handleCap();
 		void	handlePing();
 		void	handleUnknown();

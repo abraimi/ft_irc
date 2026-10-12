@@ -21,6 +21,9 @@ class Channel {
 		bool 					_topicOperatorOnly;
 		bool 					_hasUserLimit;
 
+		Channel(const Channel &other);
+		Channel &operator=(const Channel &other);
+
 		static bool contains(const std::vector<Client *> &list, const Client *client);
 
 	public:
@@ -40,6 +43,7 @@ class Channel {
 		bool	isOperator(const Client *client) const;
 		bool	addOperator(Client *client);
 		bool	removeOperator(Client *client);
+		Client	*promoteFirstMemberIfOperatorless();
 
 		bool	isInvited(const Client *client) const;
 		bool	invite(Client *client);

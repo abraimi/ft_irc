@@ -5,31 +5,29 @@
 #include "MessageException.hpp"
 #include "Server.hpp"
 #include "Utils.hpp"
-#include <cstdlib>
 #include <map>
+#include <stdexcept>
 #include <sstream>
 #include <vector>
 
-namespace {
-
-void broadcast(Server &server, const std::vector<Client *> &members,
+static void broadcast(Server &server, const std::vector<Client *> &members,
 		const std::string &line) {
 	for (std::size_t i = 0; i < members.size(); ++i)
 		server.sendToClient(members[i], line);
 }
 
-bool parsePositive(const std::string &text, std::size_t &value) {
+static bool parsePositive(const std::string &text, std::size_t &value) {
+	static const std::size_t MAX_CHANNEL_USER_LIMIT = 1000000;
 	if (text.empty())
 		return false;
 	std::size_t result = 0;
 	for (std::string::size_type i = 0; i < text.size(); ++i) {
 		if (text[i] < '0' || text[i] > '9')
 			return false;
-		if (result > 100000)
+		const std::size_t digit = static_cast<std::size_t>(text[i] - '0');
+		if (result > (MAX_CHANNEL_USER_LIMIT - digit) / 10)
 			return false;
-		result = result * 10 + static_cast<std::size_t>(text[i] - '0');
-		if (result > 1000000)
-			return false;
+		result = result * 10 + digit;
 	}
 	if (result == 0)
 		return false;
@@ -37,7 +35,14 @@ bool parsePositive(const std::string &text, std::size_t &value) {
 	return true;
 }
 
-}
+struct ModeOperation {
+	char flag;
+	bool enabled;
+	std::string parameter;
+
+	ModeOperation(char modeFlag, bool isEnabled, const std::string &value)
+		: flag(modeFlag), enabled(isEnabled), parameter(value) {}
+};
 
 Dispatcher::Dispatcher(Server &server, Client &client, Message &msg)
 	: _server(server), _client(client), _message(msg) {}
@@ -62,7 +67,7 @@ void Dispatcher::tryCompleteRegistration() {
 	_server.sendToClient(&_client, Utils::composeNumericReply(_client, 003, "",
 		"This server was created for the 42 ft_irc project"));
 	_server.sendToClient(&_client, Utils::composeNumericReply(_client, 004,
-		"ft_irc 1.0 itkol", "itkol"));
+		"ft_irc 1.0 itkol"));
 }
 
 bool Dispatcher::isNicknameInUse(const std::string &nickname) const {
@@ -74,10 +79,19 @@ bool Dispatcher::isNicknameInUse(const std::string &nickname) const {
 	return false;
 }
 
+Client *Dispatcher::findClientByNickname(const std::string &nickname) const {
+	const std::vector<Client *> &clients = _server.getClients();
+	for (std::size_t i = 0; i < clients.size(); ++i)
+		if (!clients[i]->getNickname().empty()
+			&& Utils::equalsIgnoreCase(clients[i]->getNickname(), nickname))
+			return clients[i];
+	return NULL;
+}
+
 void Dispatcher::handlePass() {
 	if (_client.isAuth() || _client.isRegistered())
 		throw MessageException(ERR_ALREADYREGISTRED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	if (!verifyPassword(args[0]))
 		throw MessageException(ERR_PASSWDMISMATCH, &_client);
 	_client.setisAuth(true);
@@ -115,7 +129,7 @@ void Dispatcher::handleNick() {
 void Dispatcher::handleUser() {
 	if (_client.isRegistered())
 		throw MessageException(ERR_ALREADYREGISTRED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	if (! _client.getUsername().empty())
 		throw MessageException(ERR_ALREADYREGISTRED, &_client);
 	_client.setUserName(args[0]);
@@ -126,7 +140,7 @@ void Dispatcher::handleUser() {
 void Dispatcher::handleJoin() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	bool created = false;
 	Channel *channel = _server.getOrCreateChannel(args[0], created);
 	if (channel->hasMember(&_client))
@@ -168,7 +182,7 @@ void Dispatcher::handleJoin() {
 void Dispatcher::handlePrivmsg() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	const std::string &target = args[0];
 	const std::string line = Utils::composeClientReply(_client, "PRIVMSG", target, args[1]);
 	if (!target.empty() && (target[0] == '#' || target[0] == '&')) {
@@ -197,7 +211,7 @@ void Dispatcher::handlePrivmsg() {
 void Dispatcher::handleKick() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	Channel *channel = _server.getChannelByName(args[0]);
 	if (!channel)
 		throw MessageException(ERR_NOSUCHCHANNEL, &_client, args[0]);
@@ -205,18 +219,14 @@ void Dispatcher::handleKick() {
 		throw MessageException(ERR_NOTONCHANNEL, &_client, args[0]);
 	if (!channel->isOperator(&_client))
 		throw MessageException(ERR_CHANOPRIVSNEEDED, &_client, args[0]);
-	Client *target = NULL;
-	const std::vector<Client *> &clients = _server.getClients();
-	for (std::size_t i = 0; i < clients.size(); ++i)
-		if (Utils::equalsIgnoreCase(clients[i]->getNickname(), args[1]))
-			target = clients[i];
+	Client *target = findClientByNickname(args[1]);
 	if (!target || !channel->hasMember(target))
 		throw MessageException(ERR_USERNOTINCHANNEL, &_client, args[1] + " " + args[0]);
 	const std::string reason = args.size() > 2 ? args[2] : _client.getNickname();
 	const std::string line = Utils::composeClientReply(_client, "KICK",
 		args[0] + " " + target->getNickname(), reason);
 	broadcast(_server, channel->getMembers(), line);
-	channel->removeMember(target);
+	_server.removeChannelMember(channel, target);
 	if (channel->getMemberCount() == 0) {
 		for (std::size_t i = 0; i < _server._channels.size(); ++i)
 			if (_server._channels[i] == channel) {
@@ -230,17 +240,13 @@ void Dispatcher::handleKick() {
 void Dispatcher::handleInvite() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	Channel *channel = _server.getChannelByName(args[1]);
 	if (!channel)
 		throw MessageException(ERR_NOSUCHCHANNEL, &_client, args[1]);
 	if (!channel->hasMember(&_client))
 		throw MessageException(ERR_NOTONCHANNEL, &_client, args[1]);
-	Client *target = NULL;
-	const std::vector<Client *> &clients = _server.getClients();
-	for (std::size_t i = 0; i < clients.size(); ++i)
-		if (Utils::equalsIgnoreCase(clients[i]->getNickname(), args[0]))
-			target = clients[i];
+	Client *target = findClientByNickname(args[0]);
 	if (!target)
 		throw MessageException(ERR_NOSUCHNICK, &_client, args[0]);
 	if (channel->hasMember(target))
@@ -257,7 +263,7 @@ void Dispatcher::handleInvite() {
 void Dispatcher::handleTopic() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	Channel *channel = _server.getChannelByName(args[0]);
 	if (!channel)
 		throw MessageException(ERR_NOSUCHCHANNEL, &_client, args[0]);
@@ -279,10 +285,56 @@ void Dispatcher::handleTopic() {
 		"TOPIC", channel->getName(), args[1]));
 }
 
+void Dispatcher::applyInviteOnlyMode(Channel &channel, bool enabled,
+		const std::string &parameter, std::string &parameters) {
+	(void)parameter;
+	(void)parameters;
+	channel.setInviteOnly(enabled);
+}
+
+void Dispatcher::applyTopicOnlyMode(Channel &channel, bool enabled,
+		const std::string &parameter, std::string &parameters) {
+	(void)parameter;
+	(void)parameters;
+	channel.setTopicOperatorOnly(enabled);
+}
+
+void Dispatcher::applyKeyMode(Channel &channel, bool enabled,
+		const std::string &parameter, std::string &parameters) {
+	if (enabled)
+		channel.setKey(parameter);
+	else
+		channel.clearKey();
+	parameters += " " + parameter;
+}
+
+void Dispatcher::applyLimitMode(Channel &channel, bool enabled,
+		const std::string &parameter, std::string &parameters) {
+	if (!enabled) {
+		channel.clearUserLimit();
+		return;
+	}
+	std::size_t limit = 0;
+	if (!parsePositive(parameter, limit))
+		throw MessageException(ERR_INVALIDMODEPARAM, &_client, "l");
+	channel.setUserLimit(limit);
+	parameters += " " + parameter;
+}
+
+void Dispatcher::applyOperatorMode(Channel &channel, bool enabled,
+		const std::string &parameter, std::string &parameters) {
+	Client *target = findClientByNickname(parameter);
+	if (enabled)
+		channel.addOperator(target);
+	else
+		channel.removeOperator(target);
+	parameters += " " + parameter;
+}
+
 void Dispatcher::handleMode() {
 	if (!_client.isRegistered())
 		throw MessageException(ERR_NOTREGISTERED, &_client);
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	Channel *channel = _server.getChannelByName(args[0]);
 	if (!channel && Utils::equalsIgnoreCase(args[0], _client.getNickname())) {
 		if (args.size() == 1)
@@ -295,100 +347,90 @@ void Dispatcher::handleMode() {
 	if (!channel)
 		throw MessageException(ERR_NOSUCHCHANNEL, &_client, args[0]);
 	if (args.size() == 1) {
-		std::string parameters = channel->getName() + " " + channel->getChannelModes();
-		if (channel->hasKey())
-			parameters += " " + channel->getKey();
-		if (channel->hasUserLimit()) {
-			std::ostringstream limit;
-			limit << channel->getUserLimit();
-			parameters += " " + limit.str();
-		}
-		_server.sendToClient(&_client, Utils::composeNumericReply(_client, 324, parameters));
+		sendChannelModes(*channel);
 		return;
 	}
 	if (!channel->hasMember(&_client))
 		throw MessageException(ERR_NOTONCHANNEL, &_client, args[0]);
 	if (!channel->isOperator(&_client))
 		throw MessageException(ERR_CHANOPRIVSNEEDED, &_client, args[0]);
-	const std::string &mode = args[1];
-	char checkSign = '+';
-	std::size_t checkParam = 2;
-	const std::vector<Client *> &clients = _server.getClients();
-	for (std::string::size_type i = 0; i < mode.size(); ++i) {
-		if (mode[i] == '+' || mode[i] == '-') {
-			checkSign = mode[i];
-			continue;
-		}
-		if (mode[i] == 'k') {
-			if (checkSign == '+' && channel->hasKey())
-				throw MessageException(ERR_KEYSET, &_client, channel->getName());
-			++checkParam;
-		} else if (mode[i] == 'l' && checkSign == '+') {
-			std::size_t limit = 0;
-			if (!parsePositive(args[checkParam], limit))
-				throw MessageException(ERR_INVALIDMODEPARAM, &_client, "l");
-			++checkParam;
-		} else if (mode[i] == 'o') {
-			Client *target = NULL;
-			for (std::size_t j = 0; j < clients.size(); ++j)
-				if (Utils::equalsIgnoreCase(clients[j]->getNickname(), args[checkParam]))
-					target = clients[j];
-			if (!target)
-				throw MessageException(ERR_NOSUCHNICK, &_client, args[checkParam]);
-			if (!channel->hasMember(target))
-				throw MessageException(ERR_USERNOTINCHANNEL, &_client, args[checkParam] + " " + args[0]);
-			++checkParam;
-		}
+	applyChannelModes(*channel, args);
+}
+
+void Dispatcher::sendChannelModes(Channel &channel) {
+	std::string parameters = channel.getName() + " " + channel.getChannelModes();
+	if (channel.hasKey())
+		parameters += " " + channel.getKey();
+	if (channel.hasUserLimit()) {
+		std::ostringstream limit;
+		limit << channel.getUserLimit();
+		parameters += " " + limit.str();
 	}
+	_server.sendToClient(&_client, Utils::composeNumericReply(_client, 324, parameters));
+}
+
+void Dispatcher::applyChannelModes(Channel &channel,
+		const std::vector<std::string> &args) {
+	const std::string &mode = args[1];
+	typedef std::pair<char, ModeHandler> ModeEntry;
+	typedef std::map<char, ModeHandler> ModeHandlerMap;
+	static const ModeEntry modeEntries[] = {
+		ModeEntry('i', &Dispatcher::applyInviteOnlyMode),
+		ModeEntry('t', &Dispatcher::applyTopicOnlyMode),
+		ModeEntry('k', &Dispatcher::applyKeyMode),
+		ModeEntry('l', &Dispatcher::applyLimitMode),
+		ModeEntry('o', &Dispatcher::applyOperatorMode)
+	};
+	static const ModeHandlerMap modeHandlers(modeEntries,
+		modeEntries + sizeof(modeEntries) / sizeof(modeEntries[0]));
+	std::vector<ModeOperation> operations;
 	char sign = '+';
-	std::size_t param = 2;
+	std::size_t parameterIndex = 2;
 	std::string applied;
-	std::string params;
 	for (std::string::size_type i = 0; i < mode.size(); ++i) {
 		if (mode[i] == '+' || mode[i] == '-') {
 			sign = mode[i];
-			if (applied.empty() || applied[applied.size() - 1] == '+' || applied[applied.size() - 1] == '-')
-				applied += sign;
-			else
-				applied += sign;
+			applied += sign;
 			continue;
 		}
-		if (mode[i] == 'i')
-			channel->setInviteOnly(sign == '+');
-		else if (mode[i] == 't')
-			channel->setTopicOperatorOnly(sign == '+');
-		else if (mode[i] == 'k') {
-			if (sign == '+') {
-				channel->setKey(args[param]);
-				params += " " + args[param++];
-			} else {
-				channel->clearKey();
-				params += " " + args[param];
-				++param;
-			}
-		} else if (mode[i] == 'l') {
-			if (sign == '+') {
-				std::size_t limit = 0;
-				parsePositive(args[param], limit);
-				channel->setUserLimit(limit);
-				params += " " + args[param++];
-			} else
-				channel->clearUserLimit();
-		} else if (mode[i] == 'o') {
-			Client *target = NULL;
-			for (std::size_t j = 0; j < clients.size(); ++j)
-				if (Utils::equalsIgnoreCase(clients[j]->getNickname(), args[param]))
-					target = clients[j];
-			if (sign == '+')
-				channel->addOperator(target);
-			else
-				channel->removeOperator(target);
-			params += " " + args[param++];
+		ModeHandlerMap::const_iterator handler = modeHandlers.find(mode[i]);
+		if (handler == modeHandlers.end())
+			throw MessageException(ERR_UNKNOWNMODE, &_client, std::string(1, mode[i]));
+		const bool needsParameter = mode[i] == 'k' || mode[i] == 'o'
+			|| (mode[i] == 'l' && sign == '+');
+		std::string parameter;
+		if (needsParameter) {
+			if (parameterIndex >= args.size())
+				throw MessageException(ERR_INVALIDMODEPARAM, &_client, args[1]);
+			parameter = args[parameterIndex++];
 		}
+		if (mode[i] == 'k' && parameter.empty())
+			throw MessageException(ERR_INVALIDMODEPARAM, &_client, "k");
+		if (mode[i] == 'k' && sign == '+' && channel.hasKey())
+			throw MessageException(ERR_KEYSET, &_client, channel.getName());
+		if (mode[i] == 'l' && sign == '+') {
+			std::size_t limit = 0;
+			if (!parsePositive(parameter, limit))
+				throw MessageException(ERR_INVALIDMODEPARAM, &_client, "l");
+		}
+		if (mode[i] == 'o') {
+			Client *target = findClientByNickname(parameter);
+			if (!target)
+				throw MessageException(ERR_NOSUCHNICK, &_client, parameter);
+			if (!channel.hasMember(target))
+				throw MessageException(ERR_USERNOTINCHANNEL, &_client, parameter + " " + args[0]);
+		}
+		operations.push_back(ModeOperation(mode[i], sign == '+', parameter));
 		applied += mode[i];
 	}
-	broadcast(_server, channel->getMembers(), Utils::composeClientReply(_client,
-		"MODE", channel->getName() + " " + applied + params));
+	std::string params;
+	for (std::size_t i = 0; i < operations.size(); ++i) {
+		ModeHandlerMap::const_iterator handler = modeHandlers.find(operations[i].flag);
+		(this->*(handler->second))(channel, operations[i].enabled,
+			operations[i].parameter, params);
+	}
+	broadcast(_server, channel.getMembers(), Utils::composeClientReply(_client,
+		"MODE", channel.getName() + " " + applied + params));
 }
 
 void Dispatcher::handleUnknown() {
@@ -396,7 +438,7 @@ void Dispatcher::handleUnknown() {
 }
 
 void Dispatcher::handleCap() {
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	if (args.empty())
 		return;
 	if (Utils::equalsIgnoreCase(args[0], "LS"))
@@ -410,53 +452,74 @@ void Dispatcher::handleCap() {
 }
 
 void Dispatcher::handlePing() {
-	const std::vector<std::string> args = _message.getArgs();
+	const std::vector<std::string> &args = _message.getArgs();
 	if (args.empty())
 		throw MessageException(ERR_NEEDMOREPARAMS, &_client, "PING");
 	_server.sendToClient(&_client, Utils::composeServerReply("PONG", "ft_irc", args[0]));
 }
 
-double Dispatcher::calculate(const std::string &input)
-{
-    std::istringstream iss(input);
-    double a;
-    double b;
-    char op;
-    char extra;
+static double addValues(double left, double right) { return left + right; }
+static double subtractValues(double left, double right) { return left - right; }
+static double multiplyValues(double left, double right) { return left * right; }
 
-    if (!(iss >> a >> op >> b) || (iss >> extra))
-        throw std::runtime_error("Invalid expression");
+static double divideValues(double left, double right) {
+	if (right == 0)
+		throw std::runtime_error("Division by zero");
+	return left / right;
+}
 
-    if (op == '+')
-        return a + b;
-    if (op == '-')
-        return a - b;
-    if (op == '*')
-        return a * b;
-    if (op == '/')
-    {
-        if (b == 0)
-            throw std::runtime_error("Division by zero");
-        return a / b;
-    }
-
-    throw std::runtime_error("Unknown operator");
+double Dispatcher::calculate(const std::string &input) {
+	std::istringstream iss(input);
+	double left = 0;
+	double right = 0;
+	char op = 0;
+	char extra = 0;
+	if (!(iss >> left >> op >> right) || (iss >> extra))
+		throw std::runtime_error("Invalid expression");
+	typedef double (*Operation)(double, double);
+	typedef std::pair<char, Operation> Entry;
+	typedef std::map<char, Operation> OperationMap;
+	static const Entry entries[] = {
+		Entry('+', addValues), Entry('-', subtractValues),
+		Entry('*', multiplyValues), Entry('/', divideValues)
+	};
+	static const OperationMap operations(entries,
+		entries + sizeof(entries) / sizeof(entries[0]));
+	OperationMap::const_iterator operation = operations.find(op);
+	if (operation == operations.end())
+		throw std::runtime_error("Unknown operator");
+	return operation->second(left, right);
 }
 void Dispatcher::handleBot() {
-	const std::vector<std::string> args = _message.getArgs();
-	if(args.empty())
+	const std::vector<std::string> &args = _message.getArgs();
+	if (args.empty())
 		return;
 	std::string result;
 	try {
 		std::ostringstream out;
 		out << calculate(args[0]);
 		result = out.str();
-	} catch (...) {
+	} catch (const std::exception &) {
 		result = "error";
 	}
-	_server.sendToClient(&_client, "calculator responded to " + nickOf(_client) + " your result : " + result + "\r\n");
+	_server.sendToClient(&_client, "calculator responded to " + _client.getNickname() + " your result : " + result + "\r\n");
 }
 void Dispatcher::dispatch() {
+	if (!_client.isRegistered()) {
+		typedef std::pair<Command_t, bool> RegistrationEntry;
+		typedef std::map<Command_t, bool> RegistrationMap;
+		static const RegistrationEntry registrationEntries[] = {
+			RegistrationEntry(PASS, true), RegistrationEntry(NICK, true),
+			RegistrationEntry(USER, true), RegistrationEntry(CAP, true),
+			RegistrationEntry(PING, true)
+		};
+		static const RegistrationMap registrationCommands(registrationEntries,
+			registrationEntries + sizeof(registrationEntries)
+			/ sizeof(registrationEntries[0]));
+		if (registrationCommands.find(_message.getType()) == registrationCommands.end())
+			throw MessageException(ERR_NOTREGISTERED, &_client);
+	}
+	_message.validateArgs();
 	typedef std::pair<Command_t, Handler> Entry;
 	static const Entry entries[] = {
 		Entry(PASS, &Dispatcher::handlePass), Entry(NICK, &Dispatcher::handleNick),

@@ -68,6 +68,13 @@ bool Channel::removeOperator(Client *client) {
 	return false;
 }
 
+Client *Channel::promoteFirstMemberIfOperatorless() {
+	if (!_operators.empty() || _members.empty())
+		return NULL;
+	_operators.push_back(_members[0]);
+	return _members[0];
+}
+
 bool Channel::isInvited(const Client *client) const { return contains(_invited, client); }
 
 bool Channel::invite(Client *client) {

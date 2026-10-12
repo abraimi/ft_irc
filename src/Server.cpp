@@ -8,11 +8,46 @@
 #include <csignal>
 #include <cstring>
 #include <iostream>
+#include <new>
 #include <stdexcept>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+static const std::size_t MAX_IRC_LINE_LENGTH = 512;
+static const std::size_t IRC_LINE_END_LENGTH = 2;
+static const std::size_t MAX_IRC_CONTENT_LENGTH =
+	MAX_IRC_LINE_LENGTH - IRC_LINE_END_LENGTH;
+static const std::size_t MAX_CLIENT_OUTPUT = 64 * 1024;
+static const std::size_t RECV_BUFFER_SIZE = 4096;
+static const int LISTEN_BACKLOG = 10;
+static const int POLL_TIMEOUT_MILLISECONDS = 1000;
+static volatile sig_atomic_t shutdownRequested = 0;
+
+static void requestShutdown(int signalNumber) {
+	(void)signalNumber;
+	shutdownRequested = 1;
+}
+
+static std::string limitIrcLine(const std::string &message) {
+	if (message.size() <= MAX_IRC_LINE_LENGTH)
+		return message;
+	if (message.size() < IRC_LINE_END_LENGTH
+		|| message.compare(message.size() - IRC_LINE_END_LENGTH,
+			IRC_LINE_END_LENGTH, "\r\n") != 0)
+		return message.substr(0, MAX_IRC_LINE_LENGTH - IRC_LINE_END_LENGTH) + "\r\n";
+
+	const std::string::size_type trailingStart = message.find(" :");
+	if (trailingStart != std::string::npos
+		&& trailingStart + 2 <= MAX_IRC_CONTENT_LENGTH) {
+		const std::size_t trailingLength =
+			MAX_IRC_CONTENT_LENGTH - trailingStart - 2;
+		return message.substr(0, trailingStart + 2)
+			+ message.substr(trailingStart + 2, trailingLength) + "\r\n";
+	}
+	return message.substr(0, MAX_IRC_CONTENT_LENGTH) + "\r\n";
+}
 
 Server::Server(int port, const std::string &password)
 	: _port(port), _server_fd(-1), _password(password), _clients(), _channels(), _pollfds() {}
@@ -29,15 +64,18 @@ Server::~Server() {
 }
 
 void Server::removeClient(int fd) {
+	Client *client = NULL;
 	for (std::size_t i = 0; i < _clients.size(); ++i) {
 		if (_clients[i]->getFd() != fd)
 			continue;
-		Client *client = _clients[i];
+		client = _clients[i];
+		close(fd);
 		for (std::size_t j = 0; j < _channels.size();) {
-			_channels[j]->removeMember(client);
-			_channels[j]->revokeInvite(client);
-			if (_channels[j]->getMemberCount() == 0) {
-				delete _channels[j];
+			Channel *channel = _channels[j];
+			removeChannelMember(channel, client);
+			channel->revokeInvite(client);
+			if (channel->getMemberCount() == 0) {
+				delete channel;
 				_channels.erase(_channels.begin() + j);
 			} else {
 				++j;
@@ -45,8 +83,37 @@ void Server::removeClient(int fd) {
 		}
 		delete client;
 		_clients.erase(_clients.begin() + i);
-		return;
+		break;
 	}
+	for (std::size_t i = 0; i < _pollfds.size(); ++i)
+		if (_pollfds[i].fd == fd) {
+			_pollfds.erase(_pollfds.begin() + i);
+			break;
+		}
+}
+
+Client *Server::removeChannelMember(Channel *channel, Client *client) {
+	const bool wasOperator = channel->isOperator(client);
+	if (!channel->removeMember(client) || !wasOperator)
+		return NULL;
+	Client *promoted = NULL;
+	try {
+		promoted = channel->promoteFirstMemberIfOperatorless();
+	} catch (const std::bad_alloc &) {
+		return NULL;
+	}
+	if (!promoted)
+		return NULL;
+	try {
+		const std::string mode = Utils::composeServerReply("MODE",
+			channel->getName() + " +o " + promoted->getNickname());
+		const std::vector<Client *> &members = channel->getMembers();
+		for (std::size_t i = 0; i < members.size(); ++i)
+			sendToClient(members[i], mode);
+	} catch (const std::bad_alloc &) {
+		return promoted;
+	}
+	return promoted;
 }
 
 Client *Server::getClientByFd(int fd) {
@@ -70,7 +137,12 @@ Channel *Server::getOrCreateChannel(const std::string &name, bool &created) {
 	created = channel == NULL;
 	if (created) {
 		channel = new Channel(name);
-		_channels.push_back(channel);
+		try {
+			_channels.push_back(channel);
+		} catch (...) {
+			delete channel;
+			throw;
+		}
 	}
 	return channel;
 }
@@ -78,22 +150,36 @@ Channel *Server::getOrCreateChannel(const std::string &name, bool &created) {
 void Server::sendToClient(Client *client, const std::string &msg) {
 	if (!client || msg.empty())
 		return;
-	client->getSendBuff().append(msg);
+	if (client->shouldDisconnect())
+		return;
+	try {
+		const std::string line = limitIrcLine(msg);
+		std::string &output = client->getSendBuff();
+		if (line.size() > MAX_CLIENT_OUTPUT - output.size()) {
+			client->markForDisconnect();
+			return;
+		}
+		output.append(line);
+	} catch (const std::bad_alloc &) {
+		client->markForDisconnect();
+		return;
+	}
 	enableClientWrite(client);
 }
 
 
 void Server::processMessage(Client *client, const std::string &line) {
-	Message message(client);
 	try {
+		Message message(client);
 		message.parseMessage(line);
 		if (!message.getValid())
 			return;
-		message.validateArgs();
 		Dispatcher dispatcher(*this, *client, message);
 		dispatcher.dispatch();
 	} catch (const MessageException &error) {
 		sendToClient(client, error.what());
+	} catch (const std::bad_alloc &) {
+		client->markForDisconnect();
 	}
 }
 
@@ -114,7 +200,7 @@ void Server::setUpSocket() {
 	address.sin_port = htons(static_cast<unsigned short>(_port));
 	address.sin_addr.s_addr = htonl(INADDR_ANY);
 	if (bind(_server_fd, reinterpret_cast<struct sockaddr *>(&address), sizeof(address)) == -1
-		|| listen(_server_fd, 10) == -1) {
+		|| listen(_server_fd, LISTEN_BACKLOG) == -1) {
 		close(_server_fd);
 		_server_fd = -1;
 		throw std::runtime_error("Unable to bind/listen on requested port");
@@ -139,41 +225,58 @@ void Server::handleNewConn() {
 	clientPoll.fd = fd;
 	clientPoll.events = POLLIN;
 	clientPoll.revents = 0;
-	_pollfds.push_back(clientPoll);
-	_clients.push_back(new Client(fd));
+	Client *client = NULL;
+	try {
+		client = new Client(fd);
+		_clients.push_back(client);
+		_pollfds.push_back(clientPoll);
+	} catch (...) {
+		if (client && !_clients.empty() && _clients.back() == client)
+			_clients.pop_back();
+		delete client;
+		close(fd);
+		return;
+	}
 }
 
 bool Server::handleClientRead(std::size_t index) {
 	int fd = _pollfds[index].fd;
-	char buffer[4096];
+	char buffer[RECV_BUFFER_SIZE];
 	ssize_t count = recv(fd, buffer, sizeof(buffer), 0);
 	if (count == 0) {
-		close(fd);
 		removeClient(fd);
-		_pollfds.erase(_pollfds.begin() + index);
 		return false;
 	}
-	if (count < 0)
+	if (count < 0) // Wait for poll to report readiness again; do not inspect errno here.
 		return true;
 	Client *client = getClientByFd(fd);
 	if (!client)
 		return true;
 	std::string &input = client->getBuff();
-	input.append(buffer, static_cast<std::size_t>(count));
-	std::string::size_type end = input.find("\r\n");
+	try {
+		input.append(buffer, static_cast<std::size_t>(count));
+	} catch (const std::bad_alloc &) {
+		client->markForDisconnect();
+		return true;
+	}
+	std::string::size_type end = input.find('\n');
 	while (end != std::string::npos) {
 		std::string line = input.substr(0, end);
-		input.erase(0, end + 2);
-		if (line.size() <= 510)
+		input.erase(0, end + 1);
+		if (!line.empty() && line[line.size() - 1] == '\r')
+			line.erase(line.size() - 1);
+		if (line.size() <= MAX_IRC_CONTENT_LENGTH)
 			processMessage(client, line);
 		else
 			sendToClient(client, Utils::composeNumericReply(*client, 417, "",
 				"Input line was too long"));
 		if (getClientByFd(fd) != client)
 			return false;
-		end = input.find("\r\n");
+		if (client->shouldDisconnect())
+			break;
+		end = input.find('\n');
 	}
-	if (input.size() > 512) {
+	if (input.size() > MAX_IRC_LINE_LENGTH) {
 		input.clear();
 		sendToClient(client, Utils::composeNumericReply(*client, 417, "",
 			"Input line was too long"));
@@ -203,24 +306,28 @@ bool Server::handleClientWrite(std::size_t index) {
 		output.erase(0, static_cast<std::size_t>(sent));
 	else if (sent == 0) {
 		int fd = client->getFd();
-		close(fd);
 		removeClient(fd);
-		_pollfds.erase(_pollfds.begin() + index);
 		return false;
 	}
+	if (sent < 0) // Keep the queued bytes and let poll drive the next attempt.
+		return true;
 	if (output.empty())
 		_pollfds[index].events &= static_cast<short>(~POLLOUT);
 	return true;
 }
 
 void Server::run() {
-	while (true) {
-		int ready = poll(&_pollfds[0], _pollfds.size(), -1);
+	while (!shutdownRequested) {
+		int ready = poll(&_pollfds[0], _pollfds.size(), POLL_TIMEOUT_MILLISECONDS);
 		if (ready < 0) {
-			if (errno == EINTR)
+			if (errno == EINTR && !shutdownRequested)
 				continue;
+			if (shutdownRequested)
+				break;
 			throw std::runtime_error("poll() failed");
 		}
+		if (ready == 0)
+			continue;
 		for (std::size_t i = 0; i < _pollfds.size();) {
 			short events = _pollfds[i].revents;
 			if (!events) {
@@ -235,9 +342,7 @@ void Server::run() {
 			}
 			if (events & (POLLERR | POLLHUP | POLLNVAL)) {
 				int fd = _pollfds[i].fd;
-				close(fd);
 				removeClient(fd);
-				_pollfds.erase(_pollfds.begin() + i);
 				continue;
 			}
 			if ((events & POLLIN) && !handleClientRead(i))
@@ -248,11 +353,26 @@ void Server::run() {
 			}
 			++i;
 		}
+		disconnectOverflowedClients();
+	}
+}
+
+void Server::disconnectOverflowedClients() {
+	for (std::size_t i = 0; i < _clients.size();) {
+		if (!_clients[i]->shouldDisconnect()) {
+			++i;
+			continue;
+		}
+		removeClient(_clients[i]->getFd());
 	}
 }
 
 void Server::start() {
-	signal(SIGPIPE, SIG_IGN); //SIGPIPE can terminate your entire server process by the OS
+	shutdownRequested = 0;
+	if (signal(SIGINT, requestShutdown) == SIG_ERR
+		|| signal(SIGTERM, requestShutdown) == SIG_ERR
+		|| signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+		throw std::runtime_error("Unable to configure signal handlers");
 	setUpSocket();
 	run();
 }

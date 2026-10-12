@@ -20,10 +20,15 @@ class Server {
 		std::vector<Channel *>		_channels;
 		std::vector<struct pollfd> 	_pollfds; //fds watched by poll()
 
+		Server(const Server &other);
+		Server &operator=(const Server &other);
+
 		void handleNewConn(); //accept new client 
 		bool handleClientRead(size_t index); // receive client data
 		bool handleClientWrite(size_t index); // false means fd removed
 		void enableClientWrite(Client *client);
+		Client *removeChannelMember(Channel *channel, Client *client);
+		void disconnectOverflowedClients();
 	public:
 		Server(int port, const std::string &password);
 		~Server();
